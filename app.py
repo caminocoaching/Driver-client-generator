@@ -2252,6 +2252,207 @@ def render_admin(dashboard, drivers):
                 else:
                     st.warning("First Name is required.")
 
+    # BULK IMPORT TO DATABASE
+    with st.expander("📥 Import to Database", expanded=False):
+        st.write("Bulk import drivers into the Airtable database from CSV or a pasted list.")
+
+        import_method = st.radio(
+            "Import method",
+            ["📋 Paste Names", "📄 Upload CSV"],
+            horizontal=True,
+            key="admin_import_method"
+        )
+
+        _import_rows = []  # list of dicts: {first_name, last_name, email, championship, fb_url, ig_url, phone, notes}
+
+        if import_method == "📄 Upload CSV":
+            uploaded_file = st.file_uploader(
+                "Upload CSV file",
+                type=["csv"],
+                help="CSV with columns like: First Name, Last Name, Email, Championship, FB URL, IG URL, Phone",
+                key="admin_csv_upload"
+            )
+            if uploaded_file:
+                try:
+                    import io, csv
+                    content = uploaded_file.read().decode('utf-8', errors='replace')
+                    reader = csv.DictReader(io.StringIO(content))
+                    raw_rows = list(reader)
+
+                    if not raw_rows:
+                        st.warning("CSV file is empty.")
+                    else:
+                        # Show detected columns
+                        st.caption(f"Detected {len(raw_rows)} rows with columns: {', '.join(raw_rows[0].keys())}")
+
+                        # Map columns flexibly (case-insensitive)
+                        for row in raw_rows:
+                            lrow = {str(k).lower().strip(): str(v).strip() for k, v in row.items() if v}
+
+                            first = (lrow.get('first name', '') or lrow.get('first_name', '') or
+                                     lrow.get('firstname', '')).strip()
+                            last = (lrow.get('last name', '') or lrow.get('last_name', '') or
+                                    lrow.get('lastname', '') or lrow.get('surname', '')).strip()
+
+                            # Try full name column if no first/last
+                            full_name = (lrow.get('full name', '') or lrow.get('full_name', '') or
+                                         lrow.get('name', '') or lrow.get('driver', '') or
+                                         lrow.get('driver name', '')).strip()
+                            if full_name and not first and not last:
+                                parts = full_name.split()
+                                first = parts[0] if parts else ''
+                                last = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                            email = (lrow.get('email', '') or lrow.get('email address', '') or
+                                     lrow.get('email_address', '')).strip()
+                            champ = (lrow.get('championship', '') or lrow.get('champ', '') or
+                                     lrow.get('series', '') or lrow.get('class', '')).strip()
+                            fb = (lrow.get('fb url', '') or lrow.get('fb_url', '') or
+                                  lrow.get('facebook', '') or lrow.get('facebook url', '')).strip()
+                            ig = (lrow.get('ig url', '') or lrow.get('ig_url', '') or
+                                  lrow.get('instagram', '') or lrow.get('instagram url', '')).strip()
+                            phone = (lrow.get('phone', '') or lrow.get('phone number', '') or
+                                     lrow.get('phone_number', '') or lrow.get('tel', '')).strip()
+                            notes = (lrow.get('notes', '') or lrow.get('note', '')).strip()
+
+                            if first or last or email:
+                                _import_rows.append({
+                                    'first_name': first.title() if first else '',
+                                    'last_name': last.title() if last else '',
+                                    'email': email,
+                                    'championship': champ,
+                                    'fb_url': fb,
+                                    'ig_url': ig,
+                                    'phone': phone,
+                                    'notes': notes,
+                                })
+                        st.success(f"✅ Parsed {len(_import_rows)} valid drivers from CSV")
+                except Exception as csv_err:
+                    st.error(f"Error reading CSV: {csv_err}")
+
+        else:  # Paste Names
+            pasted_text = st.text_area(
+                "Paste driver names (one per line)",
+                height=200,
+                placeholder="John Smith\nJane Doe\nMike Johnson",
+                key="admin_paste_names"
+            )
+            paste_champ = st.text_input(
+                "Championship for all (optional)",
+                key="admin_paste_champ",
+                help="Applied to all pasted drivers"
+            )
+
+            if pasted_text:
+                lines = [l.strip() for l in pasted_text.strip().split('\n') if l.strip() and len(l.strip()) > 2]
+                for line in lines:
+                    # Clean name: remove numbers, special chars at start (position numbers)
+                    import re as _re_import
+                    clean = _re_import.sub(r'^[\d\.\)\-\s]+', '', line).strip()
+                    clean = "".join([c for c in clean if c.isalpha() or c == ' ' or c == '-' or c == "'"]).strip()
+                    if not clean or len(clean) < 2:
+                        continue
+                    parts = clean.split()
+                    first = parts[0].title() if parts else ''
+                    last = ' '.join(p.title() for p in parts[1:]) if len(parts) > 1 else ''
+                    _import_rows.append({
+                        'first_name': first,
+                        'last_name': last,
+                        'email': '',
+                        'championship': paste_champ.strip() if paste_champ else '',
+                        'fb_url': '',
+                        'ig_url': '',
+                        'phone': '',
+                        'notes': '',
+                    })
+                if _import_rows:
+                    st.success(f"✅ {len(_import_rows)} drivers ready to import")
+
+        # PREVIEW & IMPORT
+        if _import_rows:
+            # Check for duplicates against existing database
+            _new_rows = []
+            _dup_rows = []
+            for row in _import_rows:
+                full = f"{row['first_name']} {row['last_name']}".strip().lower()
+                is_dup = False
+                for existing in drivers.values():
+                    existing_full = existing.full_name.lower() if hasattr(existing, 'full_name') else ''
+                    if existing_full and full and existing_full == full:
+                        is_dup = True
+                        break
+                if is_dup:
+                    _dup_rows.append(row)
+                else:
+                    _new_rows.append(row)
+
+            if _dup_rows:
+                st.warning(f"⚠️ {len(_dup_rows)} drivers already in database (will be skipped): "
+                           + ", ".join(f"{r['first_name']} {r['last_name']}" for r in _dup_rows[:10])
+                           + ("..." if len(_dup_rows) > 10 else ""))
+
+            if _new_rows:
+                # Preview table
+                preview_df = pd.DataFrame([{
+                    'Name': f"{r['first_name']} {r['last_name']}".strip(),
+                    'Email': r['email'] or '—',
+                    'Championship': r['championship'] or '—',
+                    'FB': '✅' if r['fb_url'] else '—',
+                    'IG': '✅' if r['ig_url'] else '—',
+                } for r in _new_rows[:50]])
+                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                if len(_new_rows) > 50:
+                    st.caption(f"Showing first 50 of {len(_new_rows)} drivers")
+
+                # Import button
+                if st.button(f"⚡ Import {len(_new_rows)} New Drivers to Database", type="primary",
+                             key="admin_bulk_import_btn", use_container_width=True):
+                    added = 0
+                    failed = 0
+                    progress = st.progress(0)
+
+                    for idx, row in enumerate(_new_rows):
+                        first = row['first_name']
+                        last = row['last_name']
+                        email = row['email'].strip()
+                        if not email:
+                            slug = f"{first} {last}".lower().strip().replace(' ', '_')
+                            slug = "".join([c for c in slug if c.isalnum() or c == '_'])
+                            email = f"no_email_{slug}"
+
+                        try:
+                            success = dashboard.add_new_driver(
+                                email, first, last,
+                                fb_url=row['fb_url'],
+                                ig_url=row['ig_url'],
+                                championship=row['championship'],
+                                notes=row['notes']
+                            )
+                            if success:
+                                dashboard.update_driver_stage(email, FunnelStage.CONTACT)
+                                added_driver = dashboard._find_driver(email)
+                                if added_driver:
+                                    added_driver.outreach_date = datetime.now()
+                                    if row['phone']:
+                                        added_driver.phone = row['phone']
+                                added += 1
+                            else:
+                                failed += 1
+                        except Exception as import_err:
+                            print(f"Import error for {first} {last}: {import_err}")
+                            failed += 1
+
+                        progress.progress((idx + 1) / len(_new_rows))
+
+                    if added > 0:
+                        st.success(f"✅ Successfully imported {added} drivers into the database!")
+                    if failed > 0:
+                        st.warning(f"⚠️ {failed} drivers failed to import.")
+                    st.cache_resource.clear()
+                    st.rerun()
+            else:
+                st.info("All drivers are already in the database. Nothing to import.")
+
     # PLATFORM INTEGRATIONS (Airtable)
     with st.expander("🔌 Airtable Sync", expanded=False):
         st.caption("Push all local data updates to Airtable Master Record.")
@@ -2937,34 +3138,166 @@ def render_calendar_view(dashboard):
         })
         seen_drivers.add(driver_id)
 
-    # ── 3. ASBK 2026 Race Calendar — fixed race weekend dates ──
-    COLOR_RACE = "#1565C0"   # Dark blue — race weekend
-    _asbk_rounds = [
-        {"round": "R1", "name": "Phillip Island", "state": "VIC", "start": "2026-02-20", "end": "2026-02-23"},
-        {"round": "R2", "name": "Sydney Motorsport Park", "state": "NSW", "start": "2026-03-27", "end": "2026-03-29"},
-        {"round": "R3", "name": "The Bend", "state": "SA", "start": "2026-05-01", "end": "2026-05-04"},
-        {"round": "R4", "name": "Morgan Park", "state": "QLD", "start": "2026-05-29", "end": "2026-06-01"},
-        {"round": "R5", "name": "Queensland Raceway", "state": "QLD", "start": "2026-06-26", "end": "2026-06-29"},
-    ]
-    for _rd in _asbk_rounds:
-        events.append({
-            "title": f"🏁 ASBK {_rd['round']} — {_rd['name']} ({_rd['state']})",
-            "start": _rd["start"],
-            "end": _rd["end"],       # end is exclusive in FullCalendar
-            "allDay": True,
-            "display": "background",  # renders as subtle background highlight
-            "backgroundColor": COLOR_RACE,
-            "borderColor": COLOR_RACE,
-            "textColor": "#FFFFFF",
-        })
-        # Also add a visible label event on the first day
-        events.append({
-            "title": f"🏁 ASBK {_rd['round']} — {_rd['name']}",
-            "start": _rd["start"],
-            "allDay": True,
-            "backgroundColor": COLOR_RACE,
-            "borderColor": COLOR_RACE,
-        })
+    # ── 3. 2026 Race Calendars ──
+    _RACE_CALENDARS = {
+        "BTCC": {
+            "color": "#1565C0",  # Blue
+            "rounds": [
+                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
+                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
+                {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-24", "end": "2026-05-26"},
+                {"round": "R4", "name": "Oulton Park", "start": "2026-06-06", "end": "2026-06-08"},
+                {"round": "R5", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
+                {"round": "R6", "name": "Knockhill", "start": "2026-08-08", "end": "2026-08-10"},
+                {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-22", "end": "2026-08-24"},
+                {"round": "R8", "name": "Croft", "start": "2026-09-05", "end": "2026-09-07"},
+                {"round": "R9", "name": "Silverstone", "start": "2026-09-26", "end": "2026-09-28"},
+                {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
+            ]
+        },
+        "British F4": {
+            "color": "#E65100",  # Deep Orange
+            "rounds": [
+                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
+                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
+                {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-23", "end": "2026-05-25"},
+                {"round": "R4", "name": "Silverstone (GP)", "start": "2026-05-30", "end": "2026-06-01"},
+                {"round": "R5", "name": "Zandvoort 🇳🇱", "start": "2026-07-11", "end": "2026-07-13"},
+                {"round": "R6", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
+                {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-15", "end": "2026-08-17"},
+                {"round": "R8", "name": "Croft", "start": "2026-08-29", "end": "2026-08-31"},
+                {"round": "R9", "name": "Silverstone (National)", "start": "2026-09-26", "end": "2026-09-28"},
+                {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
+            ]
+        },
+        "GB3": {
+            "color": "#6A1B9A",  # Purple
+            "rounds": [
+                {"round": "R1", "name": "Silverstone (GP) 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
+                {"round": "R2", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-05-30", "end": "2026-06-01"},
+                {"round": "R3", "name": "Hungaroring 🇭🇺", "start": "2026-07-04", "end": "2026-07-06"},
+                {"round": "R4", "name": "Red Bull Ring 🇦🇹", "start": "2026-07-11", "end": "2026-07-13"},
+                {"round": "R5", "name": "Silverstone (GP) 🇬🇧", "start": "2026-08-01", "end": "2026-08-03"},
+                {"round": "R6", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
+                {"round": "R7", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
+                {"round": "R8", "name": "Barcelona 🇪🇸", "start": "2026-11-07", "end": "2026-11-09"},
+            ]
+        },
+        "British GT": {
+            "color": "#00838F",  # Teal
+            "rounds": [
+                {"round": "R1", "name": "Silverstone 500 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
+                {"round": "R2", "name": "Oulton Park 🇬🇧", "start": "2026-05-23", "end": "2026-05-25"},
+                {"round": "R3", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-06-20", "end": "2026-06-22"},
+                {"round": "R4", "name": "Snetterton 300 🇬🇧", "start": "2026-08-15", "end": "2026-08-17"},
+                {"round": "R5", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
+                {"round": "R6", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
+            ]
+        },
+        "UAE F4": {
+            "color": "#F9A825",  # Amber/Gold
+            "rounds": [
+                {"round": "R1", "name": "Yas Marina 🇦🇪", "start": "2026-01-16", "end": "2026-01-19"},
+                {"round": "R2", "name": "Yas Marina 🇦🇪", "start": "2026-01-23", "end": "2026-01-26"},
+                {"round": "R3", "name": "Dubai Autodrome 🇦🇪", "start": "2026-01-30", "end": "2026-02-02"},
+                {"round": "R4", "name": "Lusail 🇶🇦", "start": "2026-02-11", "end": "2026-02-14"},
+            ]
+        },
+        "Porsche Cup GB": {
+            "color": "#C62828",  # Red
+            "rounds": [
+                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-16", "end": "2026-04-20"},
+                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-08", "end": "2026-05-11"},
+                {"round": "R3", "name": "Snetterton", "start": "2026-05-22", "end": "2026-05-25"},
+                {"round": "R4", "name": "Thruxton", "start": "2026-07-24", "end": "2026-07-27"},
+                {"round": "R5", "name": "Donington Park (GP)", "start": "2026-08-20", "end": "2026-08-24"},
+                {"round": "R6", "name": "Croft", "start": "2026-09-04", "end": "2026-09-07"},
+                {"round": "R7", "name": "Silverstone", "start": "2026-09-25", "end": "2026-09-28"},
+                {"round": "R8", "name": "Brands Hatch (GP)", "start": "2026-10-09", "end": "2026-10-12"},
+            ]
+        },
+        "Porsche Cup NA": {
+            "color": "#AD1457",  # Pink
+            "rounds": [
+                {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-18", "end": "2026-03-21"},
+                {"round": "R2", "name": "Long Beach 🇺🇸", "start": "2026-04-17", "end": "2026-04-20"},
+                {"round": "R3", "name": "Miami 🇺🇸", "start": "2026-05-01", "end": "2026-05-04"},
+                {"round": "R4", "name": "Watkins Glen 🇺🇸", "start": "2026-06-25", "end": "2026-06-28"},
+                {"round": "R5", "name": "Road America 🇺🇸", "start": "2026-07-30", "end": "2026-08-02"},
+                {"round": "R6", "name": "Indianapolis 🇺🇸", "start": "2026-09-17", "end": "2026-09-20"},
+                {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-30", "end": "2026-10-03"},
+                {"round": "R8", "name": "COTA 🇺🇸", "start": "2026-10-23", "end": "2026-10-26"},
+            ]
+        },
+        "Porsche Cup AU": {
+            "color": "#2E7D32",  # Green
+            "rounds": [
+                {"round": "R1", "name": "Melbourne (F1 GP) 🇦🇺", "start": "2026-03-05", "end": "2026-03-09"},
+                {"round": "R2", "name": "Hidden Valley, Darwin 🇦🇺", "start": "2026-06-19", "end": "2026-06-22"},
+                {"round": "R3", "name": "Queensland Raceway 🇦🇺", "start": "2026-08-21", "end": "2026-08-24"},
+                {"round": "R4", "name": "The Bend, SA 🇦🇺", "start": "2026-09-11", "end": "2026-09-14"},
+                {"round": "R5", "name": "Bathurst 1000 🇦🇺", "start": "2026-10-08", "end": "2026-10-12"},
+                {"round": "R6", "name": "Gold Coast 500 🇦🇺", "start": "2026-10-23", "end": "2026-10-26"},
+                {"round": "R7", "name": "Adelaide 🇦🇺", "start": "2026-12-03", "end": "2026-12-07"},
+            ]
+        },
+        "Porsche Cup NZ": {
+            "color": "#00695C",  # Dark Teal
+            "rounds": [
+                {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2026-01-09", "end": "2026-01-12"},
+                {"round": "R2", "name": "Manfeild 🇳🇿", "start": "2026-02-27", "end": "2026-03-02"},
+                {"round": "R3", "name": "Taupo 🇳🇿", "start": "2026-03-27", "end": "2026-03-29"},
+                {"round": "R4", "name": "Taupo (ANZAC) 🇳🇿", "start": "2026-04-24", "end": "2026-04-26"},
+            ]
+        },
+        "Porsche Sprint NA": {
+            "color": "#4527A0",  # Deep Purple
+            "rounds": [
+                {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-06", "end": "2026-03-09"},
+                {"round": "R2", "name": "Barber Motorsports Park 🇺🇸", "start": "2026-03-27", "end": "2026-03-30"},
+                {"round": "R3", "name": "Sonoma 🇺🇸", "start": "2026-04-10", "end": "2026-04-13"},
+                {"round": "R4", "name": "COTA 🇺🇸", "start": "2026-05-07", "end": "2026-05-10"},
+                {"round": "R5", "name": "VIR 🇺🇸", "start": "2026-06-19", "end": "2026-06-22"},
+                {"round": "R6", "name": "Road America 🇺🇸", "start": "2026-08-14", "end": "2026-08-17"},
+                {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-11", "end": "2026-09-14"},
+            ]
+        },
+        "DTM": {
+            "color": "#37474F",  # Dark Grey-Blue
+            "rounds": [
+                {"round": "R1", "name": "Red Bull Ring 🇦🇹", "start": "2026-04-24", "end": "2026-04-28"},
+                {"round": "R2", "name": "Lausitzring 🇩🇪", "start": "2026-06-19", "end": "2026-06-23"},
+                {"round": "R3", "name": "Norisring 🇩🇪", "start": "2026-07-03", "end": "2026-07-06"},
+                {"round": "R4", "name": "Oschersleben 🇩🇪", "start": "2026-07-24", "end": "2026-07-27"},
+                {"round": "R5", "name": "Nürburgring 🇩🇪", "start": "2026-08-14", "end": "2026-08-18"},
+                {"round": "R6", "name": "Sachsenring 🇩🇪", "start": "2026-09-11", "end": "2026-09-14"},
+                {"round": "R7", "name": "Zandvoort 🇳🇱", "start": "2026-09-25", "end": "2026-09-28"},
+                {"round": "R8", "name": "Hockenheimring 🇩🇪", "start": "2026-10-09", "end": "2026-10-12"},
+            ]
+        },
+    }
+
+    for _series_name, _series_data in _RACE_CALENDARS.items():
+        _color = _series_data["color"]
+        for _rd in _series_data["rounds"]:
+            events.append({
+                "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
+                "start": _rd["start"],
+                "end": _rd["end"],       # end is exclusive in FullCalendar
+                "allDay": True,
+                "display": "background",  # renders as subtle background highlight
+                "backgroundColor": _color,
+                "borderColor": _color,
+                "textColor": "#FFFFFF",
+            })
+            # Also add a visible label event on the first day
+            events.append({
+                "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
+                "start": _rd["start"],
+                "allDay": True,
+                "backgroundColor": _color,
+                "borderColor": _color,
+            })
 
     # ── Summary above calendar ──
     overdue_count = sum(1 for e in events if e['backgroundColor'] in [COLOR_OVERDUE, COLOR_STALLED])
