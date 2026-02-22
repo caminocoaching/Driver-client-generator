@@ -1342,6 +1342,18 @@ class DataLoader:
             if r.get('Date Day 2 Assessment'): driver.day2_complete_date = self._parse_date(r.get('Date Day 2 Assessment'))
             if r.get('Date Strategy Call'): driver.strategy_call_booked_date = self._parse_date(r.get('Date Strategy Call'))
             if r.get('Date Sale Closed'): driver.sale_closed_date = self._parse_date(r.get('Date Sale Closed'))
+
+            # Race Results — load from dedicated Airtable field into notes [RESULTS] block
+            _at_race_results = r.get('Race Results', '')
+            if _at_race_results and '[RESULTS]' not in (driver.notes or ''):
+                import json as _rrj
+                try:
+                    _parsed = _rrj.loads(_at_race_results) if isinstance(_at_race_results, str) else _at_race_results
+                    if isinstance(_parsed, list) and _parsed:
+                        _results_block = f"[RESULTS]\n{_rrj.dumps(_parsed)}\n[/RESULTS]"
+                        driver.notes = f"{_results_block}\n{driver.notes or ''}" if driver.notes else _results_block
+                except Exception:
+                    pass
             
             # Preferred name (from social media / Also Known As field)
             aka = r.get('Also Known As', '')
@@ -1579,6 +1591,12 @@ class DataLoader:
 
                 # clean empty
                 clean_data = {k: v for k, v in data.items() if v is not None}
+
+                # Race Results — save structured JSON to dedicated Airtable field
+                _race_json = parse_race_results(driver.notes or "")
+                if _race_json:
+                    import json as _rj
+                    clean_data["Race Results"] = _rj.dumps(_race_json)
                 
                 success = self.airtable.upsert_driver(clean_data)
                 if success:
@@ -1609,6 +1627,11 @@ class DataLoader:
                 # Optional fields
                 if kwargs.get('notes'):
                     at_data['Notes'] = kwargs['notes']
+                    # Also sync structured race results to dedicated field
+                    _rr = parse_race_results(kwargs['notes'])
+                    if _rr:
+                        import json as _rrj2
+                        at_data['Race Results'] = _rrj2.dumps(_rr)
                 if kwargs.get('follow_up_date'):
                     at_data['Follow Up Date'] = kwargs['follow_up_date'].strftime('%Y-%m-%d')
                 # Include stage if provided (avoids a second Airtable call)
