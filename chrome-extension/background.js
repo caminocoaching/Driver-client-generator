@@ -628,8 +628,8 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
         'Replied': 'Date Replied', 'Link Sent': 'Date Link Sent',
         'Blueprint Link Sent': 'Date Link Sent', 'Race Weekend': 'Date Race Review',
         'Race Review Complete': 'Date Race Review', 'Blueprint Started': 'Date Blueprint Started',
-        'Registered': 'Date Blueprint Started', 'Day 1 Complete': 'Date Day 1 Assessment ',
-        'Day 2 Complete': 'Date Day 2 Assessment ', 'Strategy Call Booked': 'Date Strategy Call',
+        'Registered': 'Date Blueprint Started', 'Day 1 Complete': 'Date Day 1 Assessment',
+        'Day 2 Complete': 'Date Day 2 Assessment', 'Strategy Call Booked': 'Date Strategy Call',
         'Client': 'Date Sale Closed'
       };
       if (stageDateMap[stage]) fields[stageDateMap[stage]] = today;

@@ -1016,12 +1016,12 @@ class DataLoader:
             data = {}
 
             date_map = [
-                ('day1_complete_date', 'Date Day 1 Assessment ', 'snap_day1'),
-                ('day2_complete_date', 'Date Day 2 Assessment ', 'snap_day2'),
+                ('day1_complete_date', 'Date Day 1 Assessment', 'snap_day1'),
+                ('day2_complete_date', 'Date Day 2 Assessment', 'snap_day2'),
                 ('registered_date', 'Date Blueprint Started', 'snap_reg'),
                 ('sleep_test_date', 'Date Sleep Test', 'snap_sleep'),
                 ('mindset_quiz_date', 'Date Mindset Quiz', 'snap_mindset'),
-                ('flow_profile_date', 'Date Flow Profile ', 'snap_flow'),
+                ('flow_profile_date', 'Date Flow Profile', 'snap_flow'),
                 ('race_weekend_review_date', 'Date Race Review', 'snap_race'),
                 ('strategy_call_booked_date', 'Date Strategy Call', 'snap_strat'),
             ]
@@ -1337,9 +1337,9 @@ class DataLoader:
             if r.get('Date Race Review'): driver.race_weekend_review_date = self._parse_date(r.get('Date Race Review'))
             if r.get('Date Sleep Test'): driver.sleep_test_date = self._parse_date(r.get('Date Sleep Test'))
             if r.get('Date Mindset Quiz'): driver.mindset_quiz_date = self._parse_date(r.get('Date Mindset Quiz'))
-            if r.get('Date Flow Profile '): driver.flow_profile_date = self._parse_date(r.get('Date Flow Profile '))
-            if r.get('Date Day 1 Assessment '): driver.day1_complete_date = self._parse_date(r.get('Date Day 1 Assessment '))
-            if r.get('Date Day 2 Assessment '): driver.day2_complete_date = self._parse_date(r.get('Date Day 2 Assessment '))
+            if r.get('Date Flow Profile'): driver.flow_profile_date = self._parse_date(r.get('Date Flow Profile'))
+            if r.get('Date Day 1 Assessment'): driver.day1_complete_date = self._parse_date(r.get('Date Day 1 Assessment'))
+            if r.get('Date Day 2 Assessment'): driver.day2_complete_date = self._parse_date(r.get('Date Day 2 Assessment'))
             if r.get('Date Strategy Call'): driver.strategy_call_booked_date = self._parse_date(r.get('Date Strategy Call'))
             if r.get('Date Sale Closed'): driver.sale_closed_date = self._parse_date(r.get('Date Sale Closed'))
             
@@ -1459,11 +1459,11 @@ class DataLoader:
                     if not driver.registered_date:
                         driver.registered_date = _fallback_date
                         _used_fallback = True
-                elif driver.current_stage == FunnelStage.DAY1_COMPLETE and not r.get('Date Day 1 Assessment '):
+                elif driver.current_stage == FunnelStage.DAY1_COMPLETE and not r.get('Date Day 1 Assessment'):
                     if not driver.day1_complete_date:
                         driver.day1_complete_date = _fallback_date
                         _used_fallback = True
-                elif driver.current_stage == FunnelStage.DAY2_COMPLETE and not r.get('Date Day 2 Assessment '):
+                elif driver.current_stage == FunnelStage.DAY2_COMPLETE and not r.get('Date Day 2 Assessment'):
                     if not driver.day2_complete_date:
                         driver.day2_complete_date = _fallback_date
                         _used_fallback = True
@@ -1567,15 +1567,15 @@ class DataLoader:
                 # Activity / Funnel Dates
                 if driver.last_activity: data["Last Activity"] = _fmt(driver.last_activity)
                 if driver.registered_date: data["Date Blueprint Started"] = _fmt(driver.registered_date)
-                if driver.day1_complete_date: data["Date Day 1 Assessment "] = _fmt(driver.day1_complete_date)
-                if driver.day2_complete_date: data["Date Day 2 Assessment "] = _fmt(driver.day2_complete_date)
+                if driver.day1_complete_date: data["Date Day 1 Assessment"] = _fmt(driver.day1_complete_date)
+                if driver.day2_complete_date: data["Date Day 2 Assessment"] = _fmt(driver.day2_complete_date)
                 if driver.strategy_call_booked_date: data["Date Strategy Call"] = _fmt(driver.strategy_call_booked_date)
 
                 # Lead Magnet Dates (from Google Sheets)
                 if driver.race_weekend_review_date: data["Date Race Review"] = _fmt(driver.race_weekend_review_date)
                 if driver.sleep_test_date: data["Date Sleep Test"] = _fmt(driver.sleep_test_date)
                 if driver.mindset_quiz_date: data["Date Mindset Quiz"] = _fmt(driver.mindset_quiz_date)
-                if driver.flow_profile_date: data["Date Flow Profile "] = _fmt(driver.flow_profile_date)
+                if driver.flow_profile_date: data["Date Flow Profile"] = _fmt(driver.flow_profile_date)
 
                 # clean empty
                 clean_data = {k: v for k, v in data.items() if v is not None}
@@ -3365,9 +3365,9 @@ class FunnelDashboard:
                 elif new_stage in [FunnelStage.REGISTERED, FunnelStage.BLUEPRINT_STARTED]:
                     sync_data["Date Blueprint Started"] = _now_str
                 elif new_stage == FunnelStage.DAY1_COMPLETE:
-                    sync_data["Date Day 1 Assessment "] = _now_str
+                    sync_data["Date Day 1 Assessment"] = _now_str
                 elif new_stage == FunnelStage.DAY2_COMPLETE:
-                    sync_data["Date Day 2 Assessment "] = _now_str
+                    sync_data["Date Day 2 Assessment"] = _now_str
                 elif new_stage == FunnelStage.STRATEGY_CALL_BOOKED:
                     sync_data["Date Strategy Call"] = _now_str
                 elif new_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
