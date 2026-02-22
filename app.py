@@ -10,7 +10,7 @@ from funnel_manager import FunnelDashboard, FunnelStage, Driver
 from strategy_call import (
     APPLICATION_QUESTIONS, generate_script_overlay, analyze_call_transcript,
     format_analysis_report, CALL_1_FRAMEWORK, CALL_2_FRAMEWORK, swap_terminology,
-    analyze_candidate_data
+    analyze_candidate_data, GOLD_STANDARD
 )
 try:
     from airtable_manager import AirtableSettingsStore
@@ -2623,27 +2623,57 @@ def render_strategy_calls(dashboard):
 
         # Gold Standard Examples
         st.markdown("---")
-        st.markdown("### 🏆 Gold Standard Call Examples")
+        st.markdown("### 🏆 Gold Standard Calls — Sam Hirst & Angela Brunson")
+        st.caption("Both CLOSED via the 2-call process. Study these patterns to aim for 58%+ conversion.")
 
-        kb_path = os.path.join("data", "strategy_call_knowledge.json")
-        if os.path.exists(kb_path):
-            with open(kb_path, 'r') as f:
-                kb = _json.load(f)
+        gs_tabs = st.tabs(["📋 Sam Hirst — Key Moments", "📋 Angela Brunson — Key Moments", "📄 Full Transcripts"])
 
-            example_tabs = st.tabs(["Sam Hirst Call 1", "Sam Hirst Call 2", "Angel Brunson Call 1", "Angel Brunson Call 2"])
-            examples = [
-                ("sam_hirst_call1", "Sam Hirst Call 1"),
-                ("sam_hirst_call2", "Sam Hirst Call 2"),
-                ("angel_brunson_call1", "Angel Brunson Call 1"),
-                ("angel_brunson_call2", "Angel Brunson Call 2"),
-            ]
-            for tab, (key, title) in zip(example_tabs, examples):
-                with tab:
-                    content = kb.get(key, f"{title} not available.")
-                    with st.expander(f"📄 Full Transcript — {title}", expanded=False):
-                        st.text(content[:10000] if len(content) > 10000 else content)
-                        if len(content) > 10000:
-                            st.caption(f"Showing first 10,000 of {len(content)} characters")
+        with gs_tabs[0]:
+            gs = GOLD_STANDARD["sam_hirst"]
+            st.markdown(f"**Outcome: {gs['outcome']}**")
+            st.markdown("#### Call 1 — Discovery")
+            for stage, detail in gs["call_1_highlights"].items():
+                st.markdown(f"- **{stage.replace('_', ' ').title()}:** {detail}")
+            st.markdown("#### Call 2 — Close")
+            for stage, detail in gs["call_2_highlights"].items():
+                st.markdown(f"- **{stage.replace('_', ' ').title()}:** {detail}")
+            st.markdown("#### Key Techniques to Replicate")
+            for t in gs["key_techniques"]:
+                st.markdown(f"- ✅ {t}")
+
+        with gs_tabs[1]:
+            gs = GOLD_STANDARD["angela_brunson"]
+            st.markdown(f"**Outcome: {gs['outcome']}**")
+            st.markdown("#### Call 1 — Discovery")
+            for stage, detail in gs["call_1_highlights"].items():
+                st.markdown(f"- **{stage.replace('_', ' ').title()}:** {detail}")
+            st.markdown("#### Call 2 — Close")
+            for stage, detail in gs["call_2_highlights"].items():
+                st.markdown(f"- **{stage.replace('_', ' ').title()}:** {detail}")
+            st.markdown("#### Key Techniques to Replicate")
+            for t in gs["key_techniques"]:
+                st.markdown(f"- ✅ {t}")
+
+        with gs_tabs[2]:
+            kb_path = os.path.join("data", "strategy_call_knowledge.json")
+            if os.path.exists(kb_path):
+                with open(kb_path, 'r') as f:
+                    kb = _json.load(f)
+
+                example_tabs = st.tabs(["Sam Hirst Call 1", "Sam Hirst Call 2", "Angela Brunson Call 1", "Angela Brunson Call 2"])
+                examples = [
+                    ("sam_hirst_call1", "Sam Hirst Call 1"),
+                    ("sam_hirst_call2", "Sam Hirst Call 2"),
+                    ("angel_brunson_call1", "Angela Brunson Call 1"),
+                    ("angel_brunson_call2", "Angela Brunson Call 2"),
+                ]
+                for t, (key, title) in zip(example_tabs, examples):
+                    with t:
+                        content = kb.get(key, f"{title} not available.")
+                        with st.expander(f"📄 Full Transcript — {title}", expanded=False):
+                            st.text(content[:10000] if len(content) > 10000 else content)
+                            if len(content) > 10000:
+                                st.caption(f"Showing first 10,000 of {len(content)} characters")
 
 
 # ==============================================================================

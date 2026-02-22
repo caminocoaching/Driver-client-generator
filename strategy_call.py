@@ -389,7 +389,68 @@ def generate_script_overlay(answers: Dict[str, str], is_driver: bool = True) -> 
 
 
 # =============================================================================
+# GOLD STANDARD CALL BENCHMARKS
+# Sam Hirst (2 calls → CLOSED) and Angela Brunson (2 calls → CLOSED)
+# These are the target patterns every call should aim for.
+# =============================================================================
+
+GOLD_STANDARD = {
+    "sam_hirst": {
+        "name": "Sam Hirst",
+        "outcome": "CLOSED — 2-call process",
+        "call_1_highlights": {
+            "opener": "Asked 'How did you find the mini course?' — let Sam talk freely, built natural rapport before any selling.",
+            "detective": "Spent 15+ minutes in pain discovery. Key moment: Sam admitted 'I've hit my potential previously but only in dribs and drabs' — Craig dug into WHY the consistency gaps happen.",
+            "dream": "Got Sam to articulate his own vision: 'I really want to get to my potential' — Craig let Sam sell himself on the outcome.",
+            "framework": "Positioned the struggle clearly: 'You're struggling with consistency. You've tried bits and pieces. You need a proven system.'",
+            "tiedowns": "Presented £4,000 investment naturally. Used 'If we had space and we both decide it's a good fit' — non-pressured.",
+            "push_pull": "Masterful: 'I have a few more calls this week with prospects, so I'd like to speak to everyone first before I decide who I'd like to work with.' — Craig is choosing THEM, not selling.",
+            "close": "Booked Call 2 with dad present (funding decision-maker). Set homework between calls.",
+        },
+        "call_2_highlights": {
+            "recap": "Opened with clear recap of situation, desire, and goal from Call 1.",
+            "coachability": "Asked directly: 'How coachable are you?' — qualified commitment before offering spot.",
+            "good_bad_news": "Used the 'good news/bad news' frame perfectly. Good: offered a spot. Bad: 'stuck with us for 6 months!'",
+            "close": "Took payment on the call. Smooth transition: 'From my notes you preferred [payment option], so I have that ready.'",
+        },
+        "key_techniques": [
+            "Let the prospect talk 60%+ of the time — Craig listened more than he spoke",
+            "Referenced pre-call data naturally without reading from a script",
+            "Used 'my notes' language throughout — positions Craig as selective interviewer, not salesperson",
+            "Dad was included on Call 2 (under 18/funding) — planned ahead in Call 1",
+            "Paint Two Pictures technique: 3 months with vs without the programme",
+        ],
+    },
+    "angela_brunson": {
+        "name": "Angela Brunson",
+        "outcome": "CLOSED — 2-call process",
+        "call_1_highlights": {
+            "opener": "Asked 'Why did you decide to book a call?' — got Angela to state her own reasons for being there.",
+            "detective": "Deep discovery: Angela revealed specific frustrations — 'I know I can do better but something holds me back.' Craig asked what she'd tried before and how long the issue had persisted.",
+            "framework": "Crystal clear positioning: 'You're struggling with [X], You've tried [Y], You need [Z]' — textbook execution.",
+            "tiedowns": "Investment discussion felt natural. Used the platform vs 1-on-1 comparison (£9k → £4k) effectively.",
+            "credibility": "Shared relatable case studies that matched Angela's situation specifically.",
+        },
+        "call_2_highlights": {
+            "recap": "Started with exact recap: 'You want to [goal]. You're [struggling with X]. You tried [Y]. The £4,000 felt manageable.'",
+            "good_bad_news": "Perfect execution of the good news/bad news close.",
+            "objections": "When Angela hesitated, Craig asked 'What's changed since our first call?' — textbook objection isolation.",
+            "close": "Smooth payment collection on the call.",
+        },
+        "key_techniques": [
+            "Strong emotional connection — Angela felt heard and understood",
+            "Used Assessment data in conversation: referenced specific scores and gaps",
+            "Kept asking scaling questions: 'On a scale of 1-10...' to gauge progress",
+            "Two Pictures technique delivered with conviction — Angela could visualise both futures",
+            "Coachability check before offering spot — filters and flatters simultaneously",
+        ],
+    },
+}
+
+
+# =============================================================================
 # POST-CALL ANALYSIS (Mode 2)
+# Compares against Gold Standard (Sam Hirst & Angela Brunson)
 # =============================================================================
 
 SCRIPT_STAGES = [
@@ -403,10 +464,12 @@ SCRIPT_STAGES = [
 ]
 
 def analyze_call_transcript(transcript: str, candidate_answers: Optional[Dict] = None) -> Dict:
-    """Analyze a call transcript against the Championship Strategy Call Framework.
+    """Analyze a call transcript against the Championship Strategy Call Framework
+    and the Gold Standard calls (Sam Hirst & Angela Brunson).
     Returns a structured analysis dict for display."""
 
     transcript_lower = transcript.lower()
+    word_count = len(transcript.split())
     analysis = {
         "stages_detected": [],
         "adherence_score": 0,
@@ -416,23 +479,24 @@ def analyze_call_transcript(transcript: str, candidate_answers: Optional[Dict] =
         "strengths": [],
         "missed_opportunities": [],
         "actionable_advice": [],
+        "gold_standard_comparison": [],
     }
 
     # --- Stage Detection ---
     stage_markers = {
-        "Opener & Rapport": ["how are you", "good to speak", "tell me why you decided to book", "mini course", "how did you find"],
-        "The Detective": ["biggest frustration", "what's been going on", "how long has this been", "what have you tried", "what's going through your mind", "struggles", "costs you"],
-        "The Dream": ["magic wand", "what would it look like", "full potential", "what would that mean"],
-        "The Bridge": ["sam wilford", "case study", "similar position", "scale of 1-10", "programme would come to fixing"],
-        "Present Solution": ["you're struggling with", "you've tried", "you need", "proven process"],
-        "The Tiedowns": ["investment", "£4,000", "4000", "payment plan", "credit card", "chunk it down", "20 minutes a day"],
-        "Book Call 2 / Close": ["reconnect tomorrow", "second call", "good news and bad news", "offer you a spot", "card details"],
+        "Opener & Rapport": ["how are you", "good to speak", "tell me why you decided to book", "mini course", "how did you find", "why you decided to book"],
+        "The Detective": ["biggest frustration", "what's been going on", "how long has this been", "what have you tried", "what's going through your mind", "struggles", "costs you", "what's it costing", "frustrated", "struggling"],
+        "The Dream": ["magic wand", "what would it look like", "full potential", "what would that mean", "if we could fix"],
+        "The Bridge": ["sam wilford", "case study", "similar position", "scale of 1-10", "programme would come to fixing", "moto2", "motogp"],
+        "Present Solution": ["you're struggling with", "you've tried", "you need", "proven process", "you're struggling"],
+        "The Tiedowns": ["investment", "£4,000", "4000", "4,000", "payment plan", "credit card", "chunk it down", "20 minutes a day", "commit to 20 minutes"],
+        "Book Call 2 / Close": ["reconnect tomorrow", "second call", "good news and bad news", "offer you a spot", "card details", "good news", "bad news", "let you know my decision"],
     }
 
     detected_count = 0
     for stage_name, markers in stage_markers.items():
-        found = any(m in transcript_lower for m in markers)
-        if found:
+        found_markers = [m for m in markers if m in transcript_lower]
+        if found_markers:
             detected_count += 1
             analysis["stages_detected"].append(f"✅ {stage_name}")
         else:
@@ -441,55 +505,102 @@ def analyze_call_transcript(transcript: str, candidate_answers: Optional[Dict] =
     analysis["adherence_score"] = round((detected_count / len(stage_markers)) * 100)
 
     # --- Pain Amplification Analysis ---
-    pain_keywords = ["frustrat", "struggle", "cost you", "how long", "what happens when", "worst", "difficult", "challenge", "stuck"]
-    pain_count = sum(1 for k in pain_keywords if k in transcript_lower)
-    analysis["pain_amplification_score"] = min(100, pain_count * 15)
+    pain_keywords = ["frustrat", "struggle", "cost you", "how long", "what happens when", "worst",
+                     "difficult", "challenge", "stuck", "holding you back", "letting you down",
+                     "costing you", "what does that feel like", "tell me more", "dig deeper"]
+    pain_count = sum(transcript_lower.count(k) for k in pain_keywords)
+    analysis["pain_amplification_score"] = min(100, pain_count * 10)
 
-    if pain_count >= 5:
-        analysis["strengths"].append("Strong pain amplification — dug deep into the candidate's struggles")
-    elif pain_count >= 3:
-        analysis["missed_opportunities"].append("Pain amplification could go deeper. Ask more 'what does that cost you?' questions")
+    if pain_count >= 7:
+        analysis["strengths"].append("🏆 Excellent pain amplification — matches Gold Standard depth (Sam Hirst level)")
+    elif pain_count >= 4:
+        analysis["strengths"].append("Good pain discovery, but could go deeper")
+        analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 1:** Craig spent 15+ min in The Detective. Sam said 'I've hit my potential but only in dribs and drabs' — Craig dug into WHY the consistency gaps happen. Aim for this depth.")
     else:
-        analysis["missed_opportunities"].append("⚠️ Insufficient pain amplification. The Detective stage needs much more depth")
+        analysis["missed_opportunities"].append("⚠️ Pain amplification too shallow — The Detective stage needs much more depth")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard:** In Sam's call, Craig asked follow-up after follow-up until Sam articulated his own pain. In Angela's call, she revealed 'I know I can do better but something holds me back.' You need 5+ pain-probing questions minimum.")
 
     # --- Push/Pull Analysis ---
     push_pull_markers = {
-        "reverse_frame": ["i need to complete my other interviews", "let me speak to everyone first", "i'll let you know my decision"],
-        "takeaway": ["not saying there is space", "limited spots", "not sure we have room", "only work with"],
-        "urgency": ["decision to make", "24 hours", "spots fill up", "this week"],
+        "reverse_frame": ["i need to complete my other interviews", "let me speak to everyone first", "i'll let you know my decision", "speak to everyone first", "other interviews"],
+        "takeaway": ["not saying there is space", "limited spots", "not sure we have room", "only work with", "only like to work with"],
+        "urgency": ["decision to make", "24 hours", "spots fill up", "this week", "decision to make in the next"],
+        "selectivity": ["who i'd like to work with", "decide who", "i'm choosing", "not everyone gets a spot"],
     }
 
     pp_count = 0
+    pp_found = []
     for category, markers in push_pull_markers.items():
         if any(m in transcript_lower for m in markers):
             pp_count += 1
+            pp_found.append(category)
 
     analysis["push_pull_score"] = round((pp_count / len(push_pull_markers)) * 100)
 
-    if pp_count >= 2:
-        analysis["strengths"].append("Good use of Push/Pull dynamics — created scarcity and selectivity")
+    if pp_count >= 3:
+        analysis["strengths"].append("🏆 Strong Push/Pull — matches Gold Standard selectivity positioning")
+    elif pp_count >= 1:
+        missing = [k for k in push_pull_markers if k not in pp_found]
+        analysis["missed_opportunities"].append(f"Push/Pull partially used but missing: {', '.join(missing)}")
+        analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 1:** Craig said 'I have a few more calls this week with prospects, so I'd like to speak to everyone first before I decide who I'd like to work with.' — This flips the dynamic: Craig is the one choosing, not selling.")
     else:
-        analysis["missed_opportunities"].append("Push/Pull could be stronger. Use more takeaway language ('I need to check if we have space')")
+        analysis["missed_opportunities"].append("⚠️ No Push/Pull detected — this is critical for maintaining the 58% conversion rate")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard technique:** 'I need to complete my other interviews' + 'Not saying there is space yet' + '24-hour decision' = the triple Push/Pull that Sam & Angela both responded to.")
 
     # --- Objection Handling ---
-    objection_markers = ["what's changed", "real reason", "feel comfortable", "payment plan", "deposit", "company policy"]
+    objection_markers = ["what's changed", "real reason", "feel comfortable", "payment plan", "deposit",
+                        "company policy", "what would you need", "what's stopping you", "anything stopping"]
     obj_count = sum(1 for m in objection_markers if m in transcript_lower)
     analysis["objection_handling_score"] = min(100, obj_count * 25)
 
-    if obj_count >= 2:
-        analysis["strengths"].append("Handled objections effectively with proven frameworks")
+    if obj_count >= 3:
+        analysis["strengths"].append("Handled objections effectively — multiple frameworks deployed")
+    elif obj_count >= 1:
+        analysis["strengths"].append("Some objection handling present")
     elif "think about it" in transcript_lower or "not sure" in transcript_lower:
-        analysis["missed_opportunities"].append("Objections were raised but handling could be stronger. Use: 'What would you need to feel comfortable?'")
+        analysis["missed_opportunities"].append("Objections were raised but not handled with framework responses")
+        analysis["gold_standard_comparison"].append("📌 **Angela Brunson Call 2:** When Angela hesitated, Craig asked: 'What's changed since our first call?' — This isolates the real objection. Then: 'What would you need to feel comfortable moving forward?'")
+
+    # --- Two Pictures Technique ---
+    two_pictures_markers = ["two pictures", "version 1", "version 2", "3 months from now",
+                           "three months from now", "picture 1", "picture 2", "paint two"]
+    if any(m in transcript_lower for m in two_pictures_markers):
+        analysis["strengths"].append("✅ Used the 'Two Pictures' future-pacing technique")
+    else:
+        analysis["missed_opportunities"].append("Missed the 'Two Pictures' technique — this is a powerful closer")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard:** 'Let me paint two pictures: 3 months from now...' Version 1 = no action (still stuck). Version 2 = invested (breakthrough results). Both Sam and Angela responded strongly to this.")
+
+    # --- Coachability Check ---
+    coachability_markers = ["how coachable", "coachable are you", "follow the process", "follow our process", "committed to taking action"]
+    if any(m in transcript_lower for m in coachability_markers):
+        analysis["strengths"].append("✅ Performed coachability check — qualifies AND flatters the prospect")
+    else:
+        if word_count > 2000:  # Only flag on longer transcripts (likely full calls)
+            analysis["missed_opportunities"].append("No coachability check detected — this both qualifies and creates buy-in")
+            analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 2:** Craig asked: 'How coachable are you? I only like to work with people who are coachable, open to feedback, and ready to take action quickly.' — This filters AND makes them prove they deserve the spot.")
+
+    # --- Prospect Talk Ratio ---
+    # Estimate based on conversation markers
+    craig_markers = transcript_lower.count("craig") + transcript_lower.count("@") // 2
+    prospect_lines = len([l for l in transcript.split('\n') if l.strip() and 'craig' not in l.lower() and '@' not in l])
+    if craig_markers > 0 and prospect_lines > 0:
+        ratio = prospect_lines / (craig_markers + prospect_lines) * 100
+        if ratio >= 50:
+            analysis["strengths"].append(f"Good talk ratio — prospect speaking ~{int(ratio)}% of the time")
+        else:
+            analysis["gold_standard_comparison"].append(f"📌 **Gold Standard:** Craig lets the prospect talk 60%+ of the time. You're at ~{int(ratio)}%. Ask more questions, talk less.")
 
     # --- Generate Actionable Advice ---
     if analysis["adherence_score"] < 70:
         analysis["actionable_advice"].append("📋 Follow the script flow more closely. The framework converts at 58% — trust the process.")
     if analysis["pain_amplification_score"] < 50:
-        analysis["actionable_advice"].append("🔍 Spend more time in 'The Detective' stage. Ask at least 5 pain-probing questions before moving to solutions.")
+        analysis["actionable_advice"].append("🔍 Spend more time in 'The Detective' stage. In Sam's gold standard call, Craig asked 5+ pain questions before moving to solutions. Ask: 'What does that cost you?' and 'How long has this been going on?'")
     if analysis["push_pull_score"] < 50:
-        analysis["actionable_advice"].append("⚖️ Add more Push/Pull: 'I need to speak to my other candidates first' creates powerful scarcity.")
+        analysis["actionable_advice"].append("⚖️ Add more Push/Pull: 'I need to speak to my other candidates first' creates the scarcity that drives the 58% close rate.")
+    if analysis["objection_handling_score"] < 25 and word_count > 2000:
+        analysis["actionable_advice"].append("🛡️ Prepare objection responses: 'What's changed since Call 1?', 'What would you need to feel comfortable?', and always have the £500 deposit as a fallback.")
     if not analysis["actionable_advice"]:
-        analysis["actionable_advice"].append("🏆 Strong call! Focus on getting the commitment scale to 10/10 before moving to tiedowns.")
+        analysis["actionable_advice"].append("🏆 Strong call! You're matching the Gold Standard patterns. Focus on getting the commitment scale to 10/10 before moving to tiedowns.")
 
     # --- Overall Score ---
     analysis["overall_score"] = round(
@@ -504,17 +615,26 @@ def analyze_call_transcript(transcript: str, candidate_answers: Optional[Dict] =
 
 def format_analysis_report(analysis: Dict) -> str:
     """Format the post-call analysis into a readable report."""
+
+    # Gold standard comparison section
+    gs_section = ""
+    if analysis.get("gold_standard_comparison"):
+        gs_section = "\n### 🏆 Gold Standard Comparison (Sam Hirst & Angela Brunson)\n"
+        gs_section += "\n".join("- " + g for g in analysis["gold_standard_comparison"])
+        gs_section += "\n"
+
     report = f"""
 ## 📊 Post-Call Analysis Report
 
 ### Overall Score: {analysis['overall_score']}/100
+*Benchmarked against Gold Standard: Sam Hirst (CLOSED) & Angela Brunson (CLOSED)*
 
-| Category | Score |
-|----------|-------|
-| Script Adherence | {analysis['adherence_score']}% |
-| Pain Amplification | {analysis['pain_amplification_score']}% |
-| Push/Pull Dynamics | {analysis['push_pull_score']}% |
-| Objection Handling | {analysis['objection_handling_score']}% |
+| Category | Score | Gold Standard Target |
+|----------|-------|---------------------|
+| Script Adherence | {analysis['adherence_score']}% | 85%+ |
+| Pain Amplification | {analysis['pain_amplification_score']}% | 70%+ |
+| Push/Pull Dynamics | {analysis['push_pull_score']}% | 75%+ |
+| Objection Handling | {analysis['objection_handling_score']}% | 50%+ |
 
 ### Script Stages Detected
 {chr(10).join(analysis['stages_detected'])}
@@ -524,7 +644,7 @@ def format_analysis_report(analysis: Dict) -> str:
 
 ### ⚠️ Missed Opportunities
 {chr(10).join('- ' + m for m in analysis['missed_opportunities']) if analysis['missed_opportunities'] else '- No missed opportunities — great job!'}
-
+{gs_section}
 ### 🎯 Actionable Advice (to maintain 58% conversion)
 {chr(10).join('- ' + a for a in analysis['actionable_advice'])}
 """
