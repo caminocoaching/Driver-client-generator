@@ -2257,13 +2257,12 @@ def render_strategy_calls(dashboard):
     )
 
     # ══════════════════════════════════════════════════════════════════
-    # MODE 1: PRE-CALL PREPARATION
+    # MODE 1: LIVE CALL WORKSHEET
     # ══════════════════════════════════════════════════════════════════
     if mode == "🎯 Pre-Call Preparation":
-        st.markdown("### 🎯 Pre-Call Preparation")
-        st.info("Select a driver at **Strategy Call Booked** stage, or paste their application data to generate a personalized call script.")
+        st.markdown("### 📞 Live Strategy Call Worksheet")
 
-        # Option A: Select from pipeline
+        # ── Driver Selection ──
         call_booked = [d for d in dashboard.drivers.values()
                        if d.current_stage == FunnelStage.STRATEGY_CALL_BOOKED]
 
@@ -2271,195 +2270,434 @@ def render_strategy_calls(dashboard):
         with col1:
             driver_options = ["— Select a driver —"] + [f"{d.full_name} ({d.championship or 'No championship'})" for d in call_booked]
             selected = st.selectbox("Driver with Strategy Call Booked", driver_options, key="precall_driver")
-
         with col2:
-            is_driver_type = st.checkbox("🏎️ Driver (car racing)", value=True, key="precall_is_driver",
-                                         help="Checked = Car Driver terminology. Unchecked = Motorcycle Rider terminology.")
+            call_number = st.radio("Call", ["Call 1 — Discovery", "Call 2 — Close"], key="call_number", horizontal=True)
 
-        # Load saved application answers if available
-        answers = {}
-        selected_driver = None
-        if selected != "— Select a driver —":
-            idx = driver_options.index(selected) - 1
-            selected_driver = call_booked[idx]
+        if selected == "— Select a driver —":
+            st.info("👆 Select a driver to load their call worksheet with auto-populated data.")
+            return
 
-            # ── AUTO-LOAD from Google Sheet (Strategy Call Application.csv) ──
-            # This data is already synced automatically from ScoreApp/Typeform
-            _sheet_key = 'Strategy Call Application.csv'
-            _app_df = None
-            if hasattr(dashboard, 'data_loader') and hasattr(dashboard.data_loader, 'overrides'):
-                _app_df = dashboard.data_loader.overrides.get(_sheet_key)
-                if _app_df is None:
-                    # Try alternate key
-                    for k in dashboard.data_loader.overrides:
-                        if 'strategy' in k.lower() and 'application' in k.lower():
-                            _app_df = dashboard.data_loader.overrides[k]
-                            break
+        idx = driver_options.index(selected) - 1
+        selected_driver = call_booked[idx]
+        name = selected_driver.display_name
+        full_name = selected_driver.full_name
 
-            if _app_df is not None and hasattr(_app_df, 'to_dict'):
-                import re as _re
-                _name_lower = selected_driver.full_name.lower().strip()
-                _email_lower = (selected_driver.email or "").lower().strip()
+        # ── AUTO-LOAD ALL AVAILABLE DATA ──
+        app_answers = {}
 
-                # Search by email first, then by name
-                _match_row = None
-                for _, _row in _app_df.iterrows():
-                    _row_email = str(_row.get('Email', _row.get('email', ''))).lower().strip()
-                    _row_first = str(_row.get('First name', _row.get('first name', ''))).lower().strip()
-                    _row_last = str(_row.get('Last name', _row.get('last name', ''))).lower().strip()
-                    _row_name = f"{_row_first} {_row_last}".strip()
-
-                    if _email_lower and _row_email == _email_lower:
-                        _match_row = _row
-                        break
-                    if _row_name == _name_lower:
-                        _match_row = _row
+        # 1. Google Sheet application data
+        _sheet_key = 'Strategy Call Application.csv'
+        _app_df = None
+        if hasattr(dashboard, 'data_loader') and hasattr(dashboard.data_loader, 'overrides'):
+            _app_df = dashboard.data_loader.overrides.get(_sheet_key)
+            if _app_df is None:
+                for k in dashboard.data_loader.overrides:
+                    if 'strategy' in k.lower() and 'application' in k.lower():
+                        _app_df = dashboard.data_loader.overrides[k]
                         break
 
-                if _match_row is not None:
-                    # Map Google Sheet columns → strategy call answer keys
+        if _app_df is not None and hasattr(_app_df, 'to_dict'):
+            _name_lower = full_name.lower().strip()
+            _email_lower = (selected_driver.email or "").lower().strip()
+            for _, _row in _app_df.iterrows():
+                _row_email = str(_row.get('Email', _row.get('email', ''))).lower().strip()
+                _row_first = str(_row.get('First name', _row.get('first name', ''))).lower().strip()
+                _row_last = str(_row.get('Last name', _row.get('last name', ''))).lower().strip()
+                if (_email_lower and _row_email == _email_lower) or f"{_row_first} {_row_last}".strip() == _name_lower:
                     _COL_MAP = {
-                        'first name': 'first_name',
-                        'last name': 'last_name',
-                        'email': 'email', 'email ': 'email',
-                        'phone number': 'phone',
                         'what is your age?': 'age',
-                        'if under 18 your parents will need to be on the call': 'under_18_note',
                         'what is your current level of performance?': 'performance_level',
                         'what championship do you race in?': 'championship',
-                        'what initially inspired you to pursue racing at this level?': 'racing_inspiration',
                         "what's your no1 racing goal for this season?": 'season_goal',
                         'your improve assessment revealed specific performance gaps. which category surprised you most with its score?': 'assessment_surprise',
-                        'after completing the podium contenders blueprint, 3-day training.\nwhich topic created your biggest breakthrough moment?': 'blueprint_breakthrough',
-                        "after completing the podium contenders blueprint, 3-day training. \nwhich topic created your biggest breakthrough moment?": 'blueprint_breakthrough',
                         "what's the #1 mental barrier you're committed to eliminating this season?": 'mental_barrier',
                         'how committed are you to solving this barrier this season?': 'commitment_level',
                         'if you were performing at your full potential consistently, how would racing feel different?': 'full_potential_feeling',
-                        'what best describes you': 'racer_type',
                         'who funds your racing': 'funding_source',
                         'if accepted into flow performance, do you have the financial resources to invest in elite-level mental training right now?': 'financial_ready',
-                        'how willing are you to invest time, focus, and effort into achieving your racing goals?': 'willingness_invest',
                         'on a scale of 1-10, how serious are you about breakthrough performance?': 'seriousness_scale',
                         'where do you see yourself 3 years from now?': 'three_year_vision',
                         'anything else we should know?': 'anything_else',
-                        'what town/city are you based': 'city',
-                        'country': 'country',
+                        'what town/city are you based': 'city', 'country': 'country',
+                        'what best describes you': 'racer_type',
                     }
-
-                    for col_name, col_val in _match_row.items():
+                    for col_name, col_val in _row.items():
                         _key = _COL_MAP.get(str(col_name).lower().strip())
-                        if _key and col_val and str(col_val).strip() and str(col_val).strip().lower() != 'nan':
-                            answers[_key] = str(col_val).strip()
+                        if _key and col_val and str(col_val).strip().lower() not in ('nan', ''):
+                            app_answers[_key] = str(col_val).strip()
+                    break
 
-                    if answers.get('first_name'):
-                        st.success(f"✅ Auto-loaded application data from Google Sheet for **{answers.get('first_name', '')} {answers.get('last_name', '')}**")
+        # 2. Assessment scores
+        day1_score = selected_driver.day1_score
+        day2_scores = selected_driver.day2_scores or {}
 
-            # Fallback: Check for saved data in notes
-            if not answers.get('first_name') and selected_driver.notes:
-                import re as _re
-                m = _re.search(r'\[STRATEGY_APP\](.*?)\[/STRATEGY_APP\]', selected_driver.notes, _re.DOTALL)
-                if m:
-                    try:
-                        answers = _json.loads(m.group(1))
-                        st.success(f"✅ Loaded saved application data for {selected_driver.full_name}")
-                    except:
-                        pass
+        # Find weakest pillar
+        weakest_pillar = ""
+        weakest_score = 999
+        pillar_labels = {'mindset': 'Mindset', 'preparation': 'Preparation', 'flow': 'Flow', 'feedback': 'Feedback', 'sponsorship': 'Sponsorship'}
+        if day2_scores:
+            for k, v in day2_scores.items():
+                if v < weakest_score:
+                    weakest_score = v
+                    weakest_pillar = pillar_labels.get(k, k)
 
-            # Fallback: Pre-fill from driver record
-            if not answers.get('first_name'):
-                answers = {
-                    "first_name": selected_driver.first_name or "",
-                    "last_name": selected_driver.last_name or "",
-                    "email": selected_driver.email or "",
-                    "phone": selected_driver.phone or "",
-                    "championship": selected_driver.championship or "",
-                }
+        # 3. Race results & trend
+        from funnel_manager import get_results_summary
+        results_summary = get_results_summary(selected_driver.notes or "")
+        trend = results_summary.get("trend", "new")
+        best_pos = results_summary.get("best_pos")
+        best_circuit = results_summary.get("best_circuit", "")
 
-        # Option B: Paste raw data
-        with st.expander("📋 Paste Raw Application Data (from Typeform/Assessment)", expanded=not bool(answers.get("first_name"))):
-            raw_data = st.text_area(
-                "Paste candidate's application data, assessment scores, or form responses here",
-                height=200, key="precall_raw_data",
-                placeholder="e.g.\nFirst name: Sam\nLast name: Hirst\nAge: 23\nChampionship: BSB Superstock\n..."
-            )
-            if raw_data and st.button("🔍 Parse & Generate", key="precall_parse"):
-                # Simple key-value parser
-                for line in raw_data.strip().split('\n'):
-                    for q in APPLICATION_QUESTIONS:
-                        if q['label'].lower()[:20] in line.lower() or q['id'].replace('_', ' ') in line.lower():
-                            val = line.split(':', 1)[-1].strip() if ':' in line else line.strip()
-                            answers[q['id']] = val
-                            break
-                st.session_state['precall_answers'] = answers
-                st.rerun()
+        # ── DATA SUMMARY BAR ──
+        st.success(f"✅ Loaded data for **{full_name}**")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Day 1 Score", f"{day1_score}/100" if day1_score else "—")
+        m2.metric("Weakest Pillar", weakest_pillar or "—")
+        m3.metric("Best Result", f"P{best_pos}" if best_pos else "—")
+        m4.metric("Trend", {"improving": "📈 Improving", "declining": "📉 Declining", "stable": "➡️ Stable", "new": "🆕 New"}.get(trend, "—"))
+        m5.metric("Seriousness", f"{app_answers.get('seriousness_scale', '—')}/10")
 
-        if 'precall_answers' in st.session_state and not answers.get("first_name"):
-            answers = st.session_state['precall_answers']
+        # Day 2 Pillar Scores
+        if day2_scores:
+            st.markdown("**Day 2 Pillar Scores:**")
+            pcols = st.columns(len(day2_scores))
+            for i, (k, v) in enumerate(day2_scores.items()):
+                label = pillar_labels.get(k, k)
+                is_weakest = (label == weakest_pillar)
+                pcols[i].metric(f"{'⚠️ ' if is_weakest else ''}{label}", f"{v:.0f}/10" if v else "—")
 
-        # Quick-fill form for key fields
-        if answers.get("first_name") or selected_driver:
-            st.markdown("---")
-            st.markdown("#### 📝 Key Call Prep Fields")
-            with st.form("precall_form"):
-                fc1, fc2, fc3 = st.columns(3)
-                answers["first_name"] = fc1.text_input("First Name", value=answers.get("first_name", ""), key="pf_first")
-                answers["last_name"] = fc2.text_input("Last Name", value=answers.get("last_name", ""), key="pf_last")
-                answers["championship"] = fc3.text_input("Championship", value=answers.get("championship", ""), key="pf_champ")
+        st.markdown("---")
 
-                fc4, fc5 = st.columns(2)
-                answers["season_goal"] = fc4.text_area("Their #1 Goal", value=answers.get("season_goal", ""), key="pf_goal", height=80)
-                answers["mental_barrier"] = fc5.text_area("Their #1 Mental Barrier", value=answers.get("mental_barrier", ""), key="pf_barrier", height=80)
+        # ══════════════════════════════════════════════════════════════
+        # CALL 1 — DISCOVERY WORKSHEET
+        # ══════════════════════════════════════════════════════════════
+        if "Call 1" in call_number:
+            with st.form("call_1_worksheet"):
+                st.markdown("## 📞 CALL 1 — Discovery Call Worksheet")
+                st.markdown(f"**Driver:** {full_name} | **Championship:** {selected_driver.championship or app_answers.get('championship', '—')}")
 
-                fc6, fc7 = st.columns(2)
-                answers["assessment_surprise"] = fc6.text_area("Assessment Surprise", value=answers.get("assessment_surprise", ""), key="pf_surprise", height=80)
-                answers["blueprint_breakthrough"] = fc7.text_area("Blueprint Breakthrough", value=answers.get("blueprint_breakthrough", ""), key="pf_break", height=80)
+                # Pre-call info
+                st.markdown("---")
+                st.markdown("### 📋 Pre-Call Intel")
+                pc1, pc2 = st.columns(2)
+                q_response_time = pc1.text_input("⏱️ Response Time (how quickly did they book?)", key="q_response_time")
+                q_response_type = pc2.text_input("📧 Response Type (DM/email/phone)", key="q_response_type")
 
-                answers["full_potential_feeling"] = st.text_area("How would racing feel at full potential?", value=answers.get("full_potential_feeling", ""), key="pf_potential", height=60)
+                st.markdown(f"**Full Name:** {full_name}")
 
-                fc8, fc9 = st.columns(2)
-                answers["commitment_level"] = fc8.selectbox("Commitment Level",
-                    ["10/10 - Whatever it takes", "8-9/10 - Very committed", "6-7/10 - Fairly committed", "Below 6"],
-                    index=0, key="pf_commit")
-                answers["funding_source"] = fc9.selectbox("Funding Source",
-                    ["Self-Funded", "Family Funded (Bank of Mum and Dad)", "Sponsored", "Mix of Self & Sponsor", "Looking for Sponsorship"],
-                    index=0, key="pf_funding")
+                # IMPROVE scores
+                st.markdown("---")
+                st.markdown("### 📊 IMPROVE Scores")
+                if day1_score:
+                    st.markdown(f"**Day 1 — 7 Biggest Mistakes Score: {day1_score}/100**")
+                if day2_scores:
+                    scores_display = " | ".join([f"**{pillar_labels.get(k,k)}:** {v:.0f}/10" for k, v in day2_scores.items()])
+                    st.markdown(f"Day 2 Pillar Scores: {scores_display}")
+                    if weakest_pillar:
+                        st.warning(f"⚠️ **Weakest area: {weakest_pillar} ({weakest_score:.0f}/10)** — This is their #1 priority to fix")
+                else:
+                    st.info("No pillar scores loaded — ask about their marks out of 10 on the app")
 
-                answers["financial_ready"] = st.selectbox("Financial Readiness",
-                    ["Yes, I have the resources", "I'd need to arrange it but could do so", "I'd need a payment plan", "Not sure yet"],
-                    index=0, key="pf_financial")
+                q_app_marks = st.text_input("Marks out of 10 on app (if different/updated)", value=f"{weakest_pillar}: {weakest_score:.0f}/10" if weakest_pillar else "", key="q_app_marks")
 
-                submitted = st.form_submit_button("🚀 Generate Personalized Call Script", use_container_width=True, type="primary")
+                # Race Results
+                if best_pos:
+                    st.markdown(f"**Best result:** P{best_pos} at {best_circuit}" if best_circuit else f"**Best result:** P{best_pos}")
+                if trend in ("improving", "declining"):
+                    st.markdown(f"**Performance trend:** {'📈 On the incline' if trend == 'improving' else '📉 On the decline'}")
 
-            if submitted and answers.get("first_name"):
-                script = generate_script_overlay(answers, is_driver=is_driver_type)
-                st.session_state['generated_script'] = script
-                st.session_state['precall_answers'] = answers
+                # ── THE DETECTIVE — Pain Amplification ──
+                st.markdown("---")
+                st.markdown("### 🔍 The Detective — Pain Amplification")
 
-                # Save to driver notes if we have a selected driver
-                if selected_driver:
-                    app_json = _json.dumps(answers)
-                    tag = f"[STRATEGY_APP]{app_json}[/STRATEGY_APP]"
-                    existing = selected_driver.notes or ""
-                    import re as _re
-                    existing = _re.sub(r'\[STRATEGY_APP\].*?\[/STRATEGY_APP\]', '', existing, flags=_re.DOTALL).strip()
-                    selected_driver.notes = f"{tag}\n{existing}" if existing else tag
-                    dashboard.add_new_driver(
-                        selected_driver.email, selected_driver.first_name, selected_driver.last_name,
-                        selected_driver.facebook_url or "", ig_url=selected_driver.instagram_url or "",
-                        championship=selected_driver.championship or "", notes=selected_driver.notes
-                    )
-                    st.toast(f"✅ Application data saved for {selected_driver.full_name}")
+                q_struggles = st.text_area(
+                    '❓ "What are the top 2 or 3 struggles you are facing during a race weekend?"',
+                    value=app_answers.get('mental_barrier', ''),
+                    height=80, key="q_struggles"
+                )
 
-        if 'generated_script' in st.session_state:
-            st.markdown("---")
-            st.markdown(st.session_state['generated_script'])
+                q_how_long = st.text_area(
+                    f'❓ "How long has ___ been holding you back?" (Use their words from above)',
+                    height=60, key="q_how_long"
+                )
 
-            # Call 2 script
-            with st.expander("📞 Call 2 — The Close Script"):
-                call2 = CALL_2_FRAMEWORK
-                if is_driver_type:
-                    call2 = swap_terminology(call2, to_driver=True)
-                st.markdown(call2)
+                q_emotional_cost = st.text_area(
+                    f'❓ "What\'s this costing you emotionally? How does it feel when you\'re ___?"',
+                    height=60, key="q_emotional_cost"
+                )
+
+                q_tried = st.text_area(
+                    '❓ "What have you tried to fix this? What happened?"',
+                    height=60, key="q_tried"
+                )
+
+                q_investment_worksheet = st.text_area(
+                    '❓ "You completed the Racer Investment Worksheet on Day 1 of the Free Training? How much have you spent on equipment/track time trying to go faster?"',
+                    height=60, key="q_investment_worksheet"
+                )
+
+                q_season_goal = st.text_area(
+                    '❓ "What\'s your goal for this season?"',
+                    value=app_answers.get('season_goal', ''),
+                    height=60, key="q_season_goal"
+                )
+
+                q_managed = st.text_area(
+                    '❓ "___ struggling with this? How have you managed that long?"',
+                    height=60, key="q_managed"
+                )
+
+                q_no_change = st.text_area(
+                    '❓ "If nothing changes, where will you be next season?"',
+                    height=60, key="q_no_change"
+                )
+
+                # ── THE FRAMEWORK — Present Solution ──
+                st.markdown("---")
+                st.markdown("### 🎯 The Framework — Present Your Solution")
+                st.markdown(f"""
+> *"Based on what you've shared, here's exactly what needs to happen. Grab a pen...*
+>
+> *The lowest score is their No. 1 Priority — **{weakest_pillar or '___'}***
+>
+> *You can either do that alone or you can get my help to do it if we both think it's a good fit"*
+""")
+
+                # ── THE PROGRAMME REVEAL ──
+                st.markdown("---")
+                st.markdown("### 💎 Programme Reveal")
+                st.markdown("""
+> *"Where do you want to go from here?"*
+> *(They'll ask about working together)*
+>
+> *"Happy to explain. Just remember — I won't be able to offer you anything today. I need to speak with the other riders first and really think about this. But I can walk you through what working together looks like."*
+> **[PAUSE — Let that land]**
+>
+> *"Remember the 5 pillars from the free training? Here's what you actually get in the programme:*
+> - **Pillar 1 — MINDSET:** Daily training videos + 1-on-1 coaching calls after each module
+> - **Pillar 2 — PREPARATION:** Complete race weekend structure — fast from the out-lap
+> - **Pillar 3 — FLOW:** 6 modules on getting into flow state consistently
+> - **Pillar 4 — FEEDBACK:** The In The Zone app — works without signal, tells you what to focus on next session
+> - **Pillar 5 — FUNDING:** The complete sponsorship blueprint"*
+""")
+
+                q_scale_fix = st.text_area(
+                    f'❓ "On a scale of 1-10, how close do you think that would come to fixing ___?"',
+                    height=40, key="q_scale_fix"
+                )
+
+                # ── THE TIEDOWNS ──
+                st.markdown("---")
+                st.markdown("### 🔗 Tiedowns & Summary")
+
+                q_struggling_with = st.text_area("You're struggling with...", value=q_struggles if q_struggles else app_answers.get('mental_barrier', ''), height=40, key="q_struggling_with")
+                q_youve_tried = st.text_area("You've tried...", value=q_tried if q_tried else "", height=40, key="q_youve_tried")
+                st.markdown(f'> *"You need... A proven process that\'s going to give you the way to perform consistently at your best to achieve **{q_season_goal if q_season_goal else "___"}**"*')
+
+                st.markdown("""
+> *"Can you commit to 20 minutes a day for the training?"*
+> *"Does this sound like something you'd want to do?"*
+> **Excellent, do you have any other questions?**
+> ⏸️ *WAIT FOR THEM TO SAY "HOW MUCH IS IT"*
+""")
+
+                # ── THE INVESTMENT ──
+                st.markdown("---")
+                st.markdown("### 💰 Investment")
+                st.markdown("""
+> *"Good question. Now, I am not saying we have space right now; I am happy to discuss the payment options, but I need to be clear I have to take the other calls before we know whether there is space on the programme or not. Is that okay?"*
+>
+> **Plan A:** £4,000 — one-time payment, immediate full access
+> **Plan B:** 8 months × £550/month
+> **Plan C:** 16 months × £275/month
+>
+> *"On all plans you have lifetime access. Most riders choose Plan B. Which one makes the most sense for your budget?"*
+""")
+
+                q_plan_chosen = st.text_input("💳 Which plan did they lean towards?", key="q_plan_chosen")
+
+                # ── TWO PICTURES ──
+                st.markdown("---")
+                st.markdown("### 🖼️ Paint Two Pictures")
+                _struggles_text = q_struggling_with or app_answers.get('mental_barrier', '___')
+                _goal_text = q_season_goal or app_answers.get('season_goal', '___')
+                st.markdown(f"""
+> *"So {name}, you've got a decision to make in the next 24 hours. Let me paint two pictures:*
+> *3 months from now you're going to be somewhere and you're going to be someone — the question is, who will you be?"*
+>
+> **Version 1 — No Action:** *"Things stay the same... 3 months from now you're still **{_struggles_text}**, still frustrated, still finishing not where you want to be. Nowhere near your goal of **{_goal_text}**. You saved 4k but what has it actually cost you?"*
+>
+> **Version 2 — You Invest:** *"3 months from now: You've applied the mental frameworks, you understand why you struggled before, you've had breakthrough weekends. People are taking notice. Instead of frustration, you're driving home knowing no one on your bike with your budget on that track could have ridden better. AND you've secured your first £12k sponsor."*
+>
+> *"Which one do you want to be?"*
+""")
+
+                # ── BOOK CALL 2 ──
+                st.markdown("---")
+                st.markdown("### 📅 Book Call 2")
+                st.markdown("> **Book Second Call:** [calendly.com/caminocoaching/rider-fit-call](https://calendly.com/caminocoaching/rider-fit-call)")
+
+                q_missed = st.text_area('❓ "Is there anything you feel you\'ve missed that I can add to my notes before we head off?"', height=60, key="q_missed")
+
+                st.markdown("---")
+                save_call1 = st.form_submit_button("💾 Save Call 1 Notes", use_container_width=True, type="primary")
+
+            if save_call1:
+                # Save all answers to driver notes
+                call_notes = f"""[{datetime.now().strftime('%d %b %Y %H:%M')} 📞 CALL 1 WORKSHEET]
+Struggles: {q_struggles}
+How long: {q_how_long}
+Emotional cost: {q_emotional_cost}
+Tried before: {q_tried}
+Investment so far: {q_investment_worksheet}
+Season goal: {q_season_goal}
+If no change: {q_no_change}
+Scale (programme fix): {q_scale_fix}
+Plan chosen: {q_plan_chosen}
+Missed anything: {q_missed}
+[/CALL 1 WORKSHEET]"""
+                existing = selected_driver.notes or ""
+                selected_driver.notes = f"{call_notes}\n\n{existing}" if existing else call_notes
+                dashboard.add_new_driver(
+                    selected_driver.email, selected_driver.first_name, selected_driver.last_name,
+                    selected_driver.facebook_url or "", ig_url=selected_driver.instagram_url or "",
+                    championship=selected_driver.championship or "", notes=selected_driver.notes
+                )
+                st.toast(f"✅ Call 1 notes saved for {full_name}")
+                st.balloons()
+
+        # ══════════════════════════════════════════════════════════════
+        # CALL 2 — CLOSE WORKSHEET
+        # ══════════════════════════════════════════════════════════════
+        else:
+            # Try to load Call 1 notes for recap
+            _c1_struggles = ""
+            _c1_tried = ""
+            _c1_goal = app_answers.get('season_goal', '')
+            _c1_plan = ""
+            import re as _re
+            if selected_driver.notes:
+                _c1m = _re.search(r'\[.*CALL 1 WORKSHEET\](.*?)\[/CALL 1 WORKSHEET\]', selected_driver.notes, _re.DOTALL)
+                if _c1m:
+                    _c1_text = _c1m.group(1)
+                    for line in _c1_text.split('\n'):
+                        if line.startswith('Struggles:'):
+                            _c1_struggles = line.replace('Struggles:', '').strip()
+                        elif line.startswith('Tried before:'):
+                            _c1_tried = line.replace('Tried before:', '').strip()
+                        elif line.startswith('Season goal:'):
+                            _c1_goal = line.replace('Season goal:', '').strip()
+                        elif line.startswith('Plan chosen:'):
+                            _c1_plan = line.replace('Plan chosen:', '').strip()
+
+            with st.form("call_2_worksheet"):
+                st.markdown("## 🤝 CALL 2 — Close Worksheet")
+                st.markdown(f"**Driver:** {full_name}")
+
+                # ── RECAP ──
+                st.markdown("---")
+                st.markdown("### 🔄 Recap from Call 1")
+                st.markdown('> *"Ok so just let me recap what we covered last time..."*')
+
+                q2_want = st.text_area('You want to ___', value=_c1_goal, height=40, key="q2_want")
+                q2_struggling = st.text_area("You're ___ with ___", value=_c1_struggles, height=40, key="q2_struggling")
+                q2_tried = st.text_area("You have tried ___", value=_c1_tried, height=40, key="q2_tried")
+                st.markdown(f'> *"The £4,000 investment felt manageable"*')
+                st.markdown('> *"You\'re ready to work on the mental side rather than more equipment. Still accurate?"*')
+
+                # ── COACHABILITY ──
+                st.markdown("---")
+                st.markdown("### 🧠 Coachability Check")
+                st.markdown("""
+> *"One question: How coachable are you?"*
+> *"We've found our process works best when riders follow the steps exactly."*
+> *"I only like to work with people who are coachable, open to feedback, and ready to take action quickly."*
+> *"Is that you?"*
+> *"What about your commitment level — are you genuinely ready for daily practice?"*
+> *"Your racing, home, and work schedule allows for proper implementation?"*
+> *"Perfect, just wanted to be absolutely sure."*
+""")
+                q2_coachable = st.text_area("Their response to coachability check:", height=60, key="q2_coachable")
+
+                # ── GOOD NEWS / BAD NEWS ──
+                st.markdown("---")
+                st.markdown("### 🎉 Good News / Bad News")
+                st.markdown("""
+> *"I've got some good news and some bad news for you. Which would you like first?"*
+>
+> **GOOD NEWS:** *"I'm very keen to have you in the program and would like to offer you a spot. Congratulations!"*
+>
+> **BAD NEWS:** *"I'm afraid you're going to be stuck with the Camino family for the next 6 months!"*
+>
+> *"How are you feeling — excited, nervous, or a bit of both?"*
+""")
+                q2_feeling = st.text_area("How are they feeling?", height=40, key="q2_feeling")
+
+                # ── CLOSE ──
+                st.markdown("---")
+                st.markdown("### ✅ Close & Payment")
+                st.markdown(f"""
+> *"Here's what happens next: Once we take payment you'll get instant access to the training platform, and we'll book your first kickoff call."*
+>
+> *"From my notes, you preferred **{_c1_plan or '[payment option]'}**, so I have that ready. When you're ready, I'll take your card details."*
+>
+> *"You've made an excellent choice. You will get an email in the next 30 minutes."*
+""")
+
+                # ── 6-MONTH PICTURE (if needed) ──
+                st.markdown("---")
+                st.markdown("### 🖼️ Six Month Pictures (if they need a nudge)")
+                st.markdown("""
+> **Picture 1:** *"Six months from now, you've mastered the mental game. You're the rider setting lap records, enjoying every session, achieving goals you didn't think possible."*
+>
+> **Picture 2:** *"Six months of the same struggles, same frustrations, still wondering if you'll ever breakthrough."*
+>
+> *"Which future do you prefer? Then let's make Picture 1 your reality."*
+""")
+
+                # ── OBJECTION HANDLING ──
+                st.markdown("---")
+                st.markdown("### 🛡️ Objection Handling")
+                st.markdown("""
+> - *"What has changed between our first call and now?"*
+> - *"What's the real reason you are hesitating?"*
+> - *"What would you need to feel comfortable moving forward?"*
+> - *"Would it help to get started with the Starter plan and upgrade later?"*
+> - *"Should we set a check-in date to finalise your spot?"*
+>
+> **"I still need to think about it":**
+> - Ask what's changed since the first call?
+> - If it's logistics of moving money: take the £500 deposit. **Company policy!**
+""")
+                q2_objections = st.text_area("Objections raised & how handled:", height=80, key="q2_objections")
+                q2_outcome = st.selectbox("Call Outcome", ["✅ CLOSED — Payment taken", "📅 Call 3 booked", "❌ Not a fit", "⏳ Thinking about it"], key="q2_outcome")
+
+                st.markdown("---")
+                save_call2 = st.form_submit_button("💾 Save Call 2 Notes", use_container_width=True, type="primary")
+
+            if save_call2:
+                call_notes = f"""[{datetime.now().strftime('%d %b %Y %H:%M')} 🤝 CALL 2 WORKSHEET]
+Outcome: {q2_outcome}
+Coachability response: {q2_coachable}
+Feeling: {q2_feeling}
+Objections: {q2_objections}
+[/CALL 2 WORKSHEET]"""
+                existing = selected_driver.notes or ""
+                selected_driver.notes = f"{call_notes}\n\n{existing}" if existing else call_notes
+                # Update stage based on outcome
+                if "CLOSED" in q2_outcome:
+                    selected_driver.current_stage = FunnelStage.CLIENT
+                    selected_driver.sale_closed_date = datetime.now()
+                elif "Not a fit" in q2_outcome:
+                    selected_driver.current_stage = FunnelStage.NOT_A_FIT
+                dashboard.add_new_driver(
+                    selected_driver.email, selected_driver.first_name, selected_driver.last_name,
+                    selected_driver.facebook_url or "", ig_url=selected_driver.instagram_url or "",
+                    championship=selected_driver.championship or "", notes=selected_driver.notes
+                )
+                st.toast(f"✅ Call 2 notes saved for {full_name}")
+                if "CLOSED" in q2_outcome:
+                    st.balloons()
 
     # ══════════════════════════════════════════════════════════════════
     # MODE 2: POST-CALL ANALYSIS
