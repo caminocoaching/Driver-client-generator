@@ -457,7 +457,7 @@ We have some pre-season free training that many drivers are using to ensure they
 Want me to send it over?""",
 
     "Send Blueprint Link": """OK {name} here you go, instant access to the Podium Contenders Blueprint
-https://academy.caminocoaching.co.uk/podium-contenders-blueprint/order/
+https://academy.caminocoaching.co.uk/driver-podium-blueprint/order/
 
 📚 What you'll learn:
 ✓ Day 1: The 7 biggest mistakes costing you lap times
@@ -504,7 +504,7 @@ Day 2's 5-Pillar Assessment is where it all comes together though. It shows you 
 
 Takes about 15 mins - you ready to dive in?
 
-Here's your link: https://academy.caminocoaching.co.uk/podium-contenders-blueprint/order/""",
+Here's your link: https://academy.caminocoaching.co.uk/driver-podium-blueprint/order/""",
 
     "Rescue: Book Strategy Call": """Hey {name}!
 

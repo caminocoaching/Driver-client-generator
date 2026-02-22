@@ -1028,7 +1028,7 @@ def render_race_outreach(dashboard):
                                         _linked_orgs[_link_name] = {
                                             "org_id": _disc['org_id'],
                                             "name": _org_name,
-                                            "sport": _disc.get('sport', 'Bike')
+                                            "sport": _disc.get('sport', 'Car')
                                         }
                                         st.session_state.sh_linked_orgs = _linked_orgs
                                         # Persist to Airtable

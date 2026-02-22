@@ -3841,7 +3841,7 @@ class SocialFinder:
         links = {}
         
         # Level 1: Core Discovery
-        links['🔍 Core Discovery'] = make_link(f'"{name}" AND ("racing" OR "racer" OR "motorsport" OR "bike")')
+        links['🔍 Core Discovery'] = make_link(f'"{name}" AND ("racing" OR "racer" OR "motorsport" OR "car")')
         
         # Level 2: Socials (Direct Platform Search preferred by User)
         # Facebook: Direct search (shows mutuals)
