@@ -7,6 +7,11 @@ from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from urllib.parse import unquote_plus
 from funnel_manager import FunnelDashboard, FunnelStage, Driver
+from strategy_call import (
+    APPLICATION_QUESTIONS, generate_script_overlay, analyze_call_transcript,
+    format_analysis_report, CALL_1_FRAMEWORK, CALL_2_FRAMEWORK, swap_terminology,
+    analyze_candidate_data
+)
 try:
     from airtable_manager import AirtableSettingsStore
 except ImportError:
@@ -2233,6 +2238,344 @@ def render_race_outreach(dashboard):
 
 
 # ==============================================================================
+# STRATEGY CALLS VIEW
+# ==============================================================================
+
+def render_strategy_calls(dashboard):
+    """Render the Strategy Call system — Pre-Call Prep, Post-Call Analysis, Application Form."""
+    import json as _json
+
+    st.subheader("📞 Championship Strategy Call System")
+    st.caption("58% converting call framework • Pre-Call Prep • Post-Call Coaching • Application Questions")
+
+    mode = st.radio(
+        "Mode",
+        ["🎯 Pre-Call Preparation", "📊 Post-Call Analysis", "📝 Application Form", "📖 Call Scripts"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="strategy_mode"
+    )
+
+    # ══════════════════════════════════════════════════════════════════
+    # MODE 1: PRE-CALL PREPARATION
+    # ══════════════════════════════════════════════════════════════════
+    if mode == "🎯 Pre-Call Preparation":
+        st.markdown("### 🎯 Pre-Call Preparation")
+        st.info("Select a driver at **Strategy Call Booked** stage, or paste their application data to generate a personalized call script.")
+
+        # Option A: Select from pipeline
+        call_booked = [d for d in dashboard.drivers.values()
+                       if d.current_stage == FunnelStage.STRATEGY_CALL_BOOKED]
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            driver_options = ["— Select a driver —"] + [f"{d.full_name} ({d.championship or 'No championship'})" for d in call_booked]
+            selected = st.selectbox("Driver with Strategy Call Booked", driver_options, key="precall_driver")
+
+        with col2:
+            is_driver_type = st.checkbox("🏎️ Driver (car racing)", value=True, key="precall_is_driver",
+                                         help="Checked = Car Driver terminology. Unchecked = Motorcycle Rider terminology.")
+
+        # Load saved application answers if available
+        answers = {}
+        selected_driver = None
+        if selected != "— Select a driver —":
+            idx = driver_options.index(selected) - 1
+            selected_driver = call_booked[idx]
+
+            # Check for saved application data in notes
+            if selected_driver.notes:
+                import re as _re
+                m = _re.search(r'\[STRATEGY_APP\](.*?)\[/STRATEGY_APP\]', selected_driver.notes, _re.DOTALL)
+                if m:
+                    try:
+                        answers = _json.loads(m.group(1))
+                        st.success(f"✅ Loaded saved application data for {selected_driver.full_name}")
+                    except:
+                        pass
+
+            # Pre-fill from driver record
+            if not answers:
+                answers = {
+                    "first_name": selected_driver.first_name or "",
+                    "last_name": selected_driver.last_name or "",
+                    "email": selected_driver.email or "",
+                    "phone": selected_driver.phone or "",
+                    "championship": selected_driver.championship or "",
+                }
+
+        # Option B: Paste raw data
+        with st.expander("📋 Paste Raw Application Data (from Typeform/Assessment)", expanded=not bool(answers.get("first_name"))):
+            raw_data = st.text_area(
+                "Paste candidate's application data, assessment scores, or form responses here",
+                height=200, key="precall_raw_data",
+                placeholder="e.g.\nFirst name: Sam\nLast name: Hirst\nAge: 23\nChampionship: BSB Superstock\n..."
+            )
+            if raw_data and st.button("🔍 Parse & Generate", key="precall_parse"):
+                # Simple key-value parser
+                for line in raw_data.strip().split('\n'):
+                    for q in APPLICATION_QUESTIONS:
+                        if q['label'].lower()[:20] in line.lower() or q['id'].replace('_', ' ') in line.lower():
+                            val = line.split(':', 1)[-1].strip() if ':' in line else line.strip()
+                            answers[q['id']] = val
+                            break
+                st.session_state['precall_answers'] = answers
+                st.rerun()
+
+        if 'precall_answers' in st.session_state and not answers.get("first_name"):
+            answers = st.session_state['precall_answers']
+
+        # Quick-fill form for key fields
+        if answers.get("first_name") or selected_driver:
+            st.markdown("---")
+            st.markdown("#### 📝 Key Call Prep Fields")
+            with st.form("precall_form"):
+                fc1, fc2, fc3 = st.columns(3)
+                answers["first_name"] = fc1.text_input("First Name", value=answers.get("first_name", ""), key="pf_first")
+                answers["last_name"] = fc2.text_input("Last Name", value=answers.get("last_name", ""), key="pf_last")
+                answers["championship"] = fc3.text_input("Championship", value=answers.get("championship", ""), key="pf_champ")
+
+                fc4, fc5 = st.columns(2)
+                answers["season_goal"] = fc4.text_area("Their #1 Goal", value=answers.get("season_goal", ""), key="pf_goal", height=80)
+                answers["mental_barrier"] = fc5.text_area("Their #1 Mental Barrier", value=answers.get("mental_barrier", ""), key="pf_barrier", height=80)
+
+                fc6, fc7 = st.columns(2)
+                answers["assessment_surprise"] = fc6.text_area("Assessment Surprise", value=answers.get("assessment_surprise", ""), key="pf_surprise", height=80)
+                answers["blueprint_breakthrough"] = fc7.text_area("Blueprint Breakthrough", value=answers.get("blueprint_breakthrough", ""), key="pf_break", height=80)
+
+                answers["full_potential_feeling"] = st.text_area("How would racing feel at full potential?", value=answers.get("full_potential_feeling", ""), key="pf_potential", height=60)
+
+                fc8, fc9 = st.columns(2)
+                answers["commitment_level"] = fc8.selectbox("Commitment Level",
+                    ["10/10 - Whatever it takes", "8-9/10 - Very committed", "6-7/10 - Fairly committed", "Below 6"],
+                    index=0, key="pf_commit")
+                answers["funding_source"] = fc9.selectbox("Funding Source",
+                    ["Self-Funded", "Family Funded (Bank of Mum and Dad)", "Sponsored", "Mix of Self & Sponsor", "Looking for Sponsorship"],
+                    index=0, key="pf_funding")
+
+                answers["financial_ready"] = st.selectbox("Financial Readiness",
+                    ["Yes, I have the resources", "I'd need to arrange it but could do so", "I'd need a payment plan", "Not sure yet"],
+                    index=0, key="pf_financial")
+
+                submitted = st.form_submit_button("🚀 Generate Personalized Call Script", use_container_width=True, type="primary")
+
+            if submitted and answers.get("first_name"):
+                script = generate_script_overlay(answers, is_driver=is_driver_type)
+                st.session_state['generated_script'] = script
+                st.session_state['precall_answers'] = answers
+
+                # Save to driver notes if we have a selected driver
+                if selected_driver:
+                    app_json = _json.dumps(answers)
+                    tag = f"[STRATEGY_APP]{app_json}[/STRATEGY_APP]"
+                    existing = selected_driver.notes or ""
+                    import re as _re
+                    existing = _re.sub(r'\[STRATEGY_APP\].*?\[/STRATEGY_APP\]', '', existing, flags=_re.DOTALL).strip()
+                    selected_driver.notes = f"{tag}\n{existing}" if existing else tag
+                    dashboard.add_new_driver(
+                        selected_driver.email, selected_driver.first_name, selected_driver.last_name,
+                        selected_driver.facebook_url or "", ig_url=selected_driver.instagram_url or "",
+                        championship=selected_driver.championship or "", notes=selected_driver.notes
+                    )
+                    st.toast(f"✅ Application data saved for {selected_driver.full_name}")
+
+        if 'generated_script' in st.session_state:
+            st.markdown("---")
+            st.markdown(st.session_state['generated_script'])
+
+            # Call 2 script
+            with st.expander("📞 Call 2 — The Close Script"):
+                call2 = CALL_2_FRAMEWORK
+                if is_driver_type:
+                    call2 = swap_terminology(call2, to_driver=True)
+                st.markdown(call2)
+
+    # ══════════════════════════════════════════════════════════════════
+    # MODE 2: POST-CALL ANALYSIS
+    # ══════════════════════════════════════════════════════════════════
+    elif mode == "📊 Post-Call Analysis":
+        st.markdown("### 📊 Post-Call Analysis & Coaching")
+        st.info("Paste a call transcript and get scored against the Championship Strategy Call Framework.")
+
+        transcript = st.text_area(
+            "📄 Paste Call Transcript",
+            height=300, key="postcall_transcript",
+            placeholder="Paste the full call transcript here...\n\ne.g.\n@0:00 - Craig: Hey Sam, how are you doing?\n@0:05 - Sam: Good thanks, yeah not too bad..."
+        )
+
+        pc1, pc2 = st.columns(2)
+        call_type = pc1.radio("Call Type", ["Call 1 (Discovery)", "Call 2 (Close)"], key="postcall_type", horizontal=True)
+        driver_name = pc2.text_input("Driver/Rider Name (optional)", key="postcall_name")
+
+        if st.button("🔍 Analyze Call", key="postcall_analyze", type="primary", use_container_width=True) and transcript:
+            with st.spinner("Analyzing transcript against framework..."):
+                analysis = analyze_call_transcript(transcript)
+                report = format_analysis_report(analysis)
+                st.session_state['call_analysis'] = report
+                st.session_state['call_analysis_raw'] = analysis
+
+        if 'call_analysis' in st.session_state:
+            st.markdown("---")
+
+            # Score cards
+            raw = st.session_state.get('call_analysis_raw', {})
+            sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+            overall = raw.get('overall_score', 0)
+            color = "normal" if overall >= 70 else ("off" if overall >= 50 else "off")
+            sc1.metric("Overall", f"{overall}/100")
+            sc2.metric("Adherence", f"{raw.get('adherence_score', 0)}%")
+            sc3.metric("Pain Depth", f"{raw.get('pain_amplification_score', 0)}%")
+            sc4.metric("Push/Pull", f"{raw.get('push_pull_score', 0)}%")
+            sc5.metric("Objections", f"{raw.get('objection_handling_score', 0)}%")
+
+            st.markdown(st.session_state['call_analysis'])
+
+            # Save analysis to driver if identified
+            if driver_name:
+                matching = [d for d in dashboard.drivers.values()
+                           if driver_name.lower() in d.full_name.lower()]
+                if matching and st.button(f"💾 Save Analysis to {matching[0].full_name}'s Notes", key="save_analysis"):
+                    driver = matching[0]
+                    ts = datetime.now().strftime("%d %b %Y %H:%M")
+                    note = f"[{ts} 📞] Call Analysis — Score: {overall}/100\n{st.session_state['call_analysis']}"
+                    existing = driver.notes or ""
+                    driver.notes = f"{note}\n\n{existing}" if existing else note
+                    dashboard.add_new_driver(
+                        driver.email, driver.first_name, driver.last_name,
+                        driver.facebook_url or "", ig_url=driver.instagram_url or "",
+                        championship=driver.championship or "", notes=driver.notes
+                    )
+                    st.toast(f"✅ Analysis saved to {driver.full_name}")
+                    st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════
+    # MODE 3: APPLICATION FORM (replaces Typeform)
+    # ══════════════════════════════════════════════════════════════════
+    elif mode == "📝 Application Form":
+        st.markdown("### 📝 Strategy Call Application Form")
+        st.info("Fill in or paste the candidate's application answers. This replaces the Typeform process.")
+
+        with st.form("application_form"):
+            form_answers = {}
+            for q in APPLICATION_QUESTIONS:
+                if q["type"] == "text":
+                    form_answers[q["id"]] = st.text_input(q["label"], key=f"app_{q['id']}")
+                elif q["type"] == "textarea":
+                    form_answers[q["id"]] = st.text_area(q["label"], key=f"app_{q['id']}", height=80)
+                elif q["type"] == "select":
+                    form_answers[q["id"]] = st.selectbox(q["label"], q["options"], key=f"app_{q['id']}")
+                elif q["type"] == "slider":
+                    form_answers[q["id"]] = str(st.slider(q["label"], q.get("min", 1), q.get("max", 10), 7, key=f"app_{q['id']}"))
+
+            app_submitted = st.form_submit_button("💾 Save Application & Generate Pre-Call Brief", use_container_width=True, type="primary")
+
+        if app_submitted and form_answers.get("first_name"):
+            analysis = analyze_candidate_data(form_answers)
+            st.success(f"✅ Application saved for {analysis['name']}")
+
+            # Show quick analysis
+            st.markdown(f"""
+### 🎯 Quick Assessment: {analysis['name']}
+| Indicator | Status |
+|-----------|--------|
+| **Coachability** | {analysis['coachability']} |
+| **Financial** | {analysis['financial_flag']} |
+| **Pain Gap** | {analysis['pain_gap']} |
+| **Seriousness** | {analysis['seriousness']} |
+""")
+
+            # Try to match to existing driver and save
+            email = form_answers.get("email", "")
+            if email:
+                matching = [d for d in dashboard.drivers.values() if d.email == email]
+                if matching:
+                    driver = matching[0]
+                    app_json = _json.dumps(form_answers)
+                    tag = f"[STRATEGY_APP]{app_json}[/STRATEGY_APP]"
+                    import re as _re
+                    existing = (driver.notes or "")
+                    existing = _re.sub(r'\[STRATEGY_APP\].*?\[/STRATEGY_APP\]', '', existing, flags=_re.DOTALL).strip()
+                    driver.notes = f"{tag}\n{existing}" if existing else tag
+                    dashboard.add_new_driver(
+                        driver.email, driver.first_name, driver.last_name,
+                        driver.facebook_url or "", ig_url=driver.instagram_url or "",
+                        championship=driver.championship or "", notes=driver.notes
+                    )
+                    st.toast(f"✅ Saved to {driver.full_name}'s record")
+
+            st.session_state['precall_answers'] = form_answers
+            st.info("💡 Switch to **Pre-Call Preparation** mode to generate the personalized call script.")
+
+    # ══════════════════════════════════════════════════════════════════
+    # MODE 4: CALL SCRIPTS REFERENCE
+    # ══════════════════════════════════════════════════════════════════
+    elif mode == "📖 Call Scripts":
+        st.markdown("### 📖 Call Script Reference Library")
+
+        is_driver_view = st.checkbox("🏎️ Show Driver (car) terminology", value=True, key="scripts_driver_mode")
+
+        tab1, tab2, tab3 = st.tabs(["📞 Call 1 — Discovery", "🤝 Call 2 — Close", "📋 AdClients Push/Pull"])
+
+        with tab1:
+            script = CALL_1_FRAMEWORK.format(
+                name="[NAME]", detective_notes="[Use your pre-call prep notes here]",
+                dream_notes="[Mirror their language from the application]",
+                their_struggles="[From application]", what_theyve_tried="[Ask on call]",
+                their_goal="[From application]", their_current_struggle="[From application]",
+                riders_or_drivers="drivers" if is_driver_view else "riders",
+                bike_or_car="car" if is_driver_view else "bike",
+                ridden_or_driven="driven" if is_driver_view else "ridden",
+                specific_thing_1="[SPECIFIC THING 1]", specific_thing_2="[SPECIFIC THING 2]",
+            )
+            if is_driver_view:
+                script = swap_terminology(script, to_driver=True)
+            st.markdown(script)
+
+        with tab2:
+            call2 = CALL_2_FRAMEWORK
+            if is_driver_view:
+                call2 = swap_terminology(call2, to_driver=True)
+            st.markdown(call2)
+
+        with tab3:
+            # Load from knowledge base if available
+            kb_path = os.path.join("data", "strategy_call_knowledge.json")
+            if os.path.exists(kb_path):
+                with open(kb_path, 'r') as f:
+                    kb = _json.load(f)
+                adclients = kb.get("adclients_close", "AdClients framework not loaded.")
+                if is_driver_view:
+                    adclients = swap_terminology(adclients, to_driver=True)
+                st.markdown(adclients)
+            else:
+                st.warning("AdClients Push/Pull framework not loaded. Place the PDF in the project root.")
+
+        # Gold Standard Examples
+        st.markdown("---")
+        st.markdown("### 🏆 Gold Standard Call Examples")
+
+        kb_path = os.path.join("data", "strategy_call_knowledge.json")
+        if os.path.exists(kb_path):
+            with open(kb_path, 'r') as f:
+                kb = _json.load(f)
+
+            example_tabs = st.tabs(["Sam Hirst Call 1", "Sam Hirst Call 2", "Angel Brunson Call 1", "Angel Brunson Call 2"])
+            examples = [
+                ("sam_hirst_call1", "Sam Hirst Call 1"),
+                ("sam_hirst_call2", "Sam Hirst Call 2"),
+                ("angel_brunson_call1", "Angel Brunson Call 1"),
+                ("angel_brunson_call2", "Angel Brunson Call 2"),
+            ]
+            for tab, (key, title) in zip(example_tabs, examples):
+                with tab:
+                    content = kb.get(key, f"{title} not available.")
+                    with st.expander(f"📄 Full Transcript — {title}", expanded=False):
+                        st.text(content[:10000] if len(content) > 10000 else content)
+                        if len(content) > 10000:
+                            st.caption(f"Showing first 10,000 of {len(content)} characters")
+
+
+# ==============================================================================
 # ADMIN VIEW
 # ==============================================================================
 def render_admin(dashboard, drivers):
@@ -3517,6 +3860,7 @@ def on_nav_change():
     if "Dashboard" in val: st.query_params["tab"] = "dashboard"
     elif "Calendar" in val: st.query_params["tab"] = "calendar"
     elif "Race" in val: st.query_params["tab"] = "race"
+    elif "Strategy" in val: st.query_params["tab"] = "strategy"
     elif "All" in val: st.query_params["tab"] = "database"
     elif "Admin" in val: st.query_params["tab"] = "admin"
 
@@ -3528,13 +3872,14 @@ if "main_nav" not in st.session_state:
     if "tab" in st.query_params:
         tab_val = st.query_params["tab"]
         if tab_val == "race": st.session_state.main_nav = "🏁 Race Outreach"
+        elif tab_val == "strategy": st.session_state.main_nav = "📞 Strategy Calls"
         elif tab_val == "calendar": st.session_state.main_nav = "📅 Calendar"
         elif tab_val == "admin": st.session_state.main_nav = "⚙️ Admin"
 
 # NAVIGATION BAR
 nav = st.radio(
     "Navigation",
-    ["📊 Funnel Dashboard", "🏁 Race Outreach", "📅 Calendar", "⚙️ Admin"],
+    ["📊 Funnel Dashboard", "🏁 Race Outreach", "📞 Strategy Calls", "📅 Calendar", "⚙️ Admin"],
     horizontal=True,
     label_visibility="collapsed",
     key="main_nav", # This binding ensures persistence
@@ -3603,6 +3948,10 @@ elif nav == "🏁 Race Outreach":
     st.session_state.pop('_open_driver_card', None)
     st.session_state.pop('calendar_selected_driver', None)
     render_race_outreach(dashboard)
+elif nav == "📞 Strategy Calls":
+    st.session_state.pop('_open_driver_card', None)
+    st.session_state.pop('calendar_selected_driver', None)
+    render_strategy_calls(dashboard)
 elif nav == "⚙️ Admin":
     st.session_state.pop('_open_driver_card', None)
     st.session_state.pop('calendar_selected_driver', None)
