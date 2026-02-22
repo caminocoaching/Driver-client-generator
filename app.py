@@ -2347,15 +2347,38 @@ def render_strategy_calls(dashboard):
         trend = results_summary.get("trend", "new")
         best_pos = results_summary.get("best_pos")
         best_circuit = results_summary.get("best_circuit", "")
+        best_lap = results_summary.get("best_lap", "")
+        latest_result = results_summary.get("latest")
 
         # ── DATA SUMMARY BAR ──
         st.success(f"✅ Loaded data for **{full_name}**")
+
+        # Row 1: Key metrics
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Day 1 Score", f"{day1_score}/100" if day1_score else "—")
         m2.metric("Weakest Pillar", weakest_pillar or "—")
         m3.metric("Best Result", f"P{best_pos}" if best_pos else "—")
         m4.metric("Trend", {"improving": "📈 Improving", "declining": "📉 Declining", "stable": "➡️ Stable", "new": "🆕 New"}.get(trend, "—"))
         m5.metric("Seriousness", f"{app_answers.get('seriousness_scale', '—')}/10")
+
+        # Row 2: Additional race data
+        r1, r2, r3, r4 = st.columns(4)
+        if best_lap:
+            r1.metric("Best Lap", best_lap)
+        else:
+            r1.metric("Best Lap", "—")
+        if best_circuit:
+            r2.metric("Best Circuit", best_circuit[:20])
+        else:
+            r2.metric("Best Circuit", "—")
+        if latest_result:
+            _lr_pos = latest_result.get('pos', '?')
+            _lr_circuit = latest_result.get('circuit', '')[:15]
+            _lr_date = latest_result.get('date', '')
+            r3.metric("Latest Result", f"P{_lr_pos}" if _lr_pos else "—", delta=_lr_circuit)
+        else:
+            r3.metric("Latest Result", "—")
+        r4.metric("Commitment", app_answers.get('commitment_level', '—')[:20] if app_answers.get('commitment_level') else "—")
 
         # Day 2 Pillar Scores
         if day2_scores:
@@ -2365,6 +2388,16 @@ def render_strategy_calls(dashboard):
                 label = pillar_labels.get(k, k)
                 is_weakest = (label == weakest_pillar)
                 pcols[i].metric(f"{'⚠️ ' if is_weakest else ''}{label}", f"{v:.0f}/10" if v else "—")
+
+        # Season Notes — expandable panel
+        _clean_notes = selected_driver.notes or ""
+        # Remove internal tags for clean display
+        import re as _re
+        _display_notes = _re.sub(r'\[STRATEGY_APP\].*?\[/STRATEGY_APP\]', '', _clean_notes, flags=_re.DOTALL).strip()
+        _display_notes = _re.sub(r'\[RESULTS\].*?\[/RESULTS\]', '', _display_notes, flags=_re.DOTALL).strip()
+        if _display_notes:
+            with st.expander(f"📝 Season Notes ({len(_display_notes.split(chr(10)))} lines)", expanded=False):
+                st.text(_display_notes)
 
         st.markdown("---")
 
@@ -2566,6 +2599,43 @@ Missed anything: {q_missed}
                 st.toast(f"✅ Call 1 notes saved for {full_name}")
                 st.balloons()
 
+                # Downloadable text file
+                _download_text = f"""STRATEGY CALL 1 — DISCOVERY WORKSHEET
+{'='*50}
+Driver: {full_name}
+Date: {datetime.now().strftime('%d %b %Y %H:%M')}
+Championship: {selected_driver.championship or app_answers.get('championship', '—')}
+
+PRE-CALL DATA
+{'─'*30}
+Day 1 IMPROVE Score: {day1_score or '—'}/100
+Weakest Pillar: {weakest_pillar or '—'}{f' ({weakest_score:.0f}/10)' if weakest_pillar else ''}
+Best Result: {f'P{best_pos}' if best_pos else '—'}{f' at {best_circuit}' if best_circuit else ''}
+Best Lap: {best_lap or '—'}
+Trend: {trend.title()}
+Seriousness: {app_answers.get('seriousness_scale', '—')}/10
+
+CALL 1 Q&A
+{'─'*30}
+Struggles: {q_struggles}
+How long: {q_how_long}
+Emotional cost: {q_emotional_cost}
+Tried before: {q_tried}
+Investment so far: {q_investment_worksheet}
+Season goal: {q_season_goal}
+If nothing changes: {q_no_change}
+Scale (programme fix): {q_scale_fix}
+Plan chosen: {q_plan_chosen}
+Missed anything: {q_missed}
+"""
+                st.download_button(
+                    "📥 Download Call 1 Notes",
+                    _download_text,
+                    file_name=f"Call1_{full_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+
         # ══════════════════════════════════════════════════════════════
         # CALL 2 — CLOSE WORKSHEET
         # ══════════════════════════════════════════════════════════════
@@ -2698,6 +2768,34 @@ Objections: {q2_objections}
                 st.toast(f"✅ Call 2 notes saved for {full_name}")
                 if "CLOSED" in q2_outcome:
                     st.balloons()
+
+                # Downloadable text file
+                _download_text2 = f"""STRATEGY CALL 2 — CLOSE WORKSHEET
+{'='*50}
+Driver: {full_name}
+Date: {datetime.now().strftime('%d %b %Y %H:%M')}
+Outcome: {q2_outcome}
+
+RECAP FROM CALL 1
+{'─'*30}
+Wants to: {q2_want}
+Struggling with: {q2_struggling}
+Has tried: {q2_tried}
+
+CALL 2 Q&A
+{'─'*30}
+Coachability response: {q2_coachable}
+Feeling after offer: {q2_feeling}
+Objections: {q2_objections}
+Outcome: {q2_outcome}
+"""
+                st.download_button(
+                    "📥 Download Call 2 Notes",
+                    _download_text2,
+                    file_name=f"Call2_{full_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
 
     # ══════════════════════════════════════════════════════════════════
     # MODE 2: POST-CALL ANALYSIS
