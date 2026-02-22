@@ -2283,8 +2283,79 @@ def render_strategy_calls(dashboard):
             idx = driver_options.index(selected) - 1
             selected_driver = call_booked[idx]
 
-            # Check for saved application data in notes
-            if selected_driver.notes:
+            # ── AUTO-LOAD from Google Sheet (Strategy Call Application.csv) ──
+            # This data is already synced automatically from ScoreApp/Typeform
+            _sheet_key = 'Strategy Call Application.csv'
+            _app_df = None
+            if hasattr(dashboard, 'data_loader') and hasattr(dashboard.data_loader, 'overrides'):
+                _app_df = dashboard.data_loader.overrides.get(_sheet_key)
+                if _app_df is None:
+                    # Try alternate key
+                    for k in dashboard.data_loader.overrides:
+                        if 'strategy' in k.lower() and 'application' in k.lower():
+                            _app_df = dashboard.data_loader.overrides[k]
+                            break
+
+            if _app_df is not None and hasattr(_app_df, 'to_dict'):
+                import re as _re
+                _name_lower = selected_driver.full_name.lower().strip()
+                _email_lower = (selected_driver.email or "").lower().strip()
+
+                # Search by email first, then by name
+                _match_row = None
+                for _, _row in _app_df.iterrows():
+                    _row_email = str(_row.get('Email', _row.get('email', ''))).lower().strip()
+                    _row_first = str(_row.get('First name', _row.get('first name', ''))).lower().strip()
+                    _row_last = str(_row.get('Last name', _row.get('last name', ''))).lower().strip()
+                    _row_name = f"{_row_first} {_row_last}".strip()
+
+                    if _email_lower and _row_email == _email_lower:
+                        _match_row = _row
+                        break
+                    if _row_name == _name_lower:
+                        _match_row = _row
+                        break
+
+                if _match_row is not None:
+                    # Map Google Sheet columns → strategy call answer keys
+                    _COL_MAP = {
+                        'first name': 'first_name',
+                        'last name': 'last_name',
+                        'email': 'email', 'email ': 'email',
+                        'phone number': 'phone',
+                        'what is your age?': 'age',
+                        'if under 18 your parents will need to be on the call': 'under_18_note',
+                        'what is your current level of performance?': 'performance_level',
+                        'what championship do you race in?': 'championship',
+                        'what initially inspired you to pursue racing at this level?': 'racing_inspiration',
+                        "what's your no1 racing goal for this season?": 'season_goal',
+                        'your improve assessment revealed specific performance gaps. which category surprised you most with its score?': 'assessment_surprise',
+                        'after completing the podium contenders blueprint, 3-day training.\nwhich topic created your biggest breakthrough moment?': 'blueprint_breakthrough',
+                        "after completing the podium contenders blueprint, 3-day training. \nwhich topic created your biggest breakthrough moment?": 'blueprint_breakthrough',
+                        "what's the #1 mental barrier you're committed to eliminating this season?": 'mental_barrier',
+                        'how committed are you to solving this barrier this season?': 'commitment_level',
+                        'if you were performing at your full potential consistently, how would racing feel different?': 'full_potential_feeling',
+                        'what best describes you': 'racer_type',
+                        'who funds your racing': 'funding_source',
+                        'if accepted into flow performance, do you have the financial resources to invest in elite-level mental training right now?': 'financial_ready',
+                        'how willing are you to invest time, focus, and effort into achieving your racing goals?': 'willingness_invest',
+                        'on a scale of 1-10, how serious are you about breakthrough performance?': 'seriousness_scale',
+                        'where do you see yourself 3 years from now?': 'three_year_vision',
+                        'anything else we should know?': 'anything_else',
+                        'what town/city are you based': 'city',
+                        'country': 'country',
+                    }
+
+                    for col_name, col_val in _match_row.items():
+                        _key = _COL_MAP.get(str(col_name).lower().strip())
+                        if _key and col_val and str(col_val).strip() and str(col_val).strip().lower() != 'nan':
+                            answers[_key] = str(col_val).strip()
+
+                    if answers.get('first_name'):
+                        st.success(f"✅ Auto-loaded application data from Google Sheet for **{answers.get('first_name', '')} {answers.get('last_name', '')}**")
+
+            # Fallback: Check for saved data in notes
+            if not answers.get('first_name') and selected_driver.notes:
                 import re as _re
                 m = _re.search(r'\[STRATEGY_APP\](.*?)\[/STRATEGY_APP\]', selected_driver.notes, _re.DOTALL)
                 if m:
@@ -2294,8 +2365,8 @@ def render_strategy_calls(dashboard):
                     except:
                         pass
 
-            # Pre-fill from driver record
-            if not answers:
+            # Fallback: Pre-fill from driver record
+            if not answers.get('first_name'):
                 answers = {
                     "first_name": selected_driver.first_name or "",
                     "last_name": selected_driver.last_name or "",
