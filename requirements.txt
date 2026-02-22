@@ -1,0 +1,11 @@
+streamlit
+pandas
+plotly
+st-gsheets-connection
+pyairtable
+streamlit-calendar
+requests
+google-auth
+google-api-python-client
+altair<5
+pdfplumber

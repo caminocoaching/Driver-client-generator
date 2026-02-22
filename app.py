@@ -1,0 +1,3252 @@
+
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import os
+from datetime import datetime, timedelta
+from difflib import SequenceMatcher
+from urllib.parse import unquote_plus
+from funnel_manager import FunnelDashboard, FunnelStage, Driver
+try:
+    from airtable_manager import AirtableSettingsStore
+except ImportError:
+    AirtableSettingsStore = None  # Fallback if module cache is stale
+
+# --- CONFIGURATION ---
+st.set_page_config(page_title="Driver Pipeline", page_icon="🏎️", layout="wide")
+
+
+# --- VERSION BADGE ---
+st.sidebar.caption("✅ v2.11.0 (Live)")
+if st.sidebar.button("🔄 Refresh App", key="top_refresh"):
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    st.rerun()
+
+
+
+
+# Directory setup
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, "../Client Generator "))
+
+if not os.path.exists(DATA_DIR):
+    # Fallback to current dir if sibling not found
+    DATA_DIR = BASE_DIR
+
+# --- DATA LOADING ---
+# --- DATA LOADING ---
+# --- DATA LOADING ---
+try:
+    import gsheets_loader
+    from gsheets_loader import load_google_sheet
+    HAS_GSHEETS = True
+except ImportError:
+    HAS_GSHEETS = False
+
+
+# --- CONSTANTS ---
+from ui_components import REPLY_TEMPLATES, render_unified_card_content
+
+
+
+
+@st.cache_resource(ttl=300) # 5 min — auto-refresh JS handles 60s updates
+def load_dashboard_data(overrides=None):
+    dashboard = FunnelDashboard(DATA_DIR, overrides=overrides)
+    return dashboard
+
+@st.cache_resource
+def load_settings_store():
+    """Persistent settings store via Airtable 'Settings' table.
+    Survives Streamlit Cloud container recycles (unlike JSON files on disk)."""
+    if AirtableSettingsStore is None:
+        print("AirtableSettingsStore not available (module cache stale?)")
+        return None
+    if "airtable" in st.secrets:
+        try:
+            return AirtableSettingsStore(
+                api_key=st.secrets["airtable"]["api_key"],
+                base_id=st.secrets["airtable"]["base_id"],
+                table_name="Settings"
+            )
+        except Exception as e:
+            print(f"Settings store init failed: {e}")
+    return None
+
+
+
+
+# ==============================================================================
+# VIEW FUNCTIONS
+# ==============================================================================
+
+
+# ==============================================================================
+# render_unified_card_content Imported from ui_components
+
+
+
+@st.dialog("Driver Details", width="large")
+def view_unified_dialog(r, dashboard):
+    render_unified_card_content(r, dashboard, key_suffix="_dialog")
+    if st.button("✖ Close", key="close_unified_dialog", use_container_width=True):
+        if '_open_driver_card' in st.session_state:
+            del st.session_state['_open_driver_card']
+        st.rerun()
+
+# ==============================================================================
+# DEEP LINKING: Find driver by name, email, or social URL
+# ==============================================================================
+def find_driver_by_identifier(dashboard, identifier: str):
+    """Search for a driver by email, name, or social URL fragment.
+    Returns (driver, match_type) or (None, None). If multiple fuzzy matches,
+    returns (list_of_tuples, 'multiple')."""
+    if not identifier:
+        return None, None
+    identifier = unquote_plus(identifier).strip()
+    drivers_list = list(dashboard.drivers.values())
+    id_lower = identifier.lower()
+
+    # 1. Exact email match
+    for driver in drivers_list:
+        if driver.email.lower() == id_lower:
+            return driver, 'email'
+
+    # 2. Exact name match (case-insensitive)
+    for driver in drivers_list:
+        if driver.full_name.lower() == id_lower:
+            return driver, 'name'
+
+    # 3. Fuzzy name match
+    def _norm(s):
+        return ''.join(c for c in s.lower() if c.isalnum() or c == ' ').strip()
+
+    matches = []
+    norm_id = _norm(identifier)
+    for driver in drivers_list:
+        score = SequenceMatcher(None, _norm(driver.full_name), norm_id).ratio()
+        if score >= 0.75:
+            matches.append((driver, score))
+
+    if len(matches) == 1:
+        return matches[0][0], 'fuzzy'
+    elif len(matches) > 1:
+        matches.sort(key=lambda x: x[1], reverse=True)
+        return matches, 'multiple'
+
+    # 4. Social URL path matching
+    def _url_username(url):
+        if not url:
+            return ''
+        return str(url).rstrip('/').split('/')[-1].lower().replace('.', ' ').replace('_', ' ')
+
+    for driver in drivers_list:
+        for url in [driver.facebook_url, driver.instagram_url]:
+            uname = _url_username(url)
+            if uname and (uname == id_lower or uname == id_lower.replace(' ', '')):
+                return driver, 'url'
+
+    return None, None
+
+# HELPER: Social URL Formatter
+def _make_clickable_url(val, platform):
+    if not val: return None
+    s_val = str(val).strip()
+    if s_val.lower().startswith("http"): return s_val
+    if platform == "fb": return f"https://www.facebook.com/{s_val}"
+    if platform == "ig": return f"https://www.instagram.com/{s_val}"
+    return s_val
+
+@st.dialog("Calendar – Driver Details", width="large")
+def view_calendar_dialog(r, dashboard):
+    # Quick header with social links for fast workflow
+    hdr_cols = st.columns([3, 1, 1, 1])
+    with hdr_cols[0]:
+        stage_label = r.current_stage.value if hasattr(r.current_stage, 'value') else str(r.current_stage)
+        st.caption(f"Stage: **{stage_label}** · {r.days_in_current_stage}d")
+    with hdr_cols[1]:
+        if r.facebook_url:
+            fb_url = r.facebook_url if str(r.facebook_url).startswith('http') else f"https://www.facebook.com/{r.facebook_url}"
+            from urllib.parse import quote
+            fb_url += f"#ag_driver={quote(r.full_name)}"
+            st.markdown(f"[Open FB]({fb_url})")
+    with hdr_cols[2]:
+        if r.instagram_url:
+            ig_url = r.instagram_url if str(r.instagram_url).startswith('http') else f"https://www.instagram.com/{r.instagram_url}"
+            from urllib.parse import quote
+            ig_url += f"#ag_driver={quote(r.full_name)}"
+            st.markdown(f"[Open IG]({ig_url})")
+    with hdr_cols[3]:
+        if st.button("✕ Close", key="cal_close_top_btn", type="primary"):
+            if 'calendar_selected_driver' in st.session_state:
+                del st.session_state['calendar_selected_driver']
+            st.session_state['_cal_dismissed'] = True
+            st.rerun()
+
+    render_unified_card_content(r, dashboard, key_suffix="_cal")
+
+    if st.button("← Back to Calendar", key="cal_close_main_btn", use_container_width=True):
+        if 'calendar_selected_driver' in st.session_state:
+             del st.session_state['calendar_selected_driver']
+        st.session_state['_cal_dismissed'] = True
+        st.rerun()
+# OLD CARD CODE REMOVED — all card rendering now uses render_unified_card_content
+# from ui_components.py (imported at top). See view_unified_dialog (line 110).
+
+
+def render_dashboard(dashboard, daily_metrics, drivers):
+    def _normalize_dt(dt):
+        from datetime import date as _date
+        if isinstance(dt, datetime):
+            if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+                return dt.astimezone().replace(tzinfo=None)
+            return dt
+        if isinstance(dt, _date):
+            return datetime(dt.year, dt.month, dt.day)
+        if isinstance(dt, str):
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y'):
+                try:
+                    return datetime.strptime(dt, fmt)
+                except (ValueError, TypeError):
+                    continue
+        return None
+
+    # =========================================================================
+    # DASHBOARD — Position vs Plan
+    # =========================================================================
+    now = datetime.now()
+    import calendar
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_remaining = max(1, days_in_month - now.day + 1)  # include today
+    days_elapsed = now.day
+
+    SALES_TARGET = 10
+
+    # --- Count MTD activity: driver must be AT that stage AND have the date this month ---
+    # This matches exactly what the pipeline board shows.
+    def _is_this_month(dt_val):
+        d = _normalize_dt(dt_val)
+        return d and d.month == now.month and d.year == now.year
+    _STAGE_MAP = [
+        ('messaged', [FunnelStage.MESSAGED, FunnelStage.OUTREACH], 'outreach_date'),
+        ('replied',  [FunnelStage.REPLIED], 'replied_date'),
+        ('link_sent', [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT], 'link_sent_date'),
+        ('registered', [FunnelStage.BLUEPRINT_STARTED, FunnelStage.REGISTERED], 'registered_date'),
+        ('day1', [FunnelStage.DAY1_COMPLETE], 'day1_complete_date'),
+        ('day2', [FunnelStage.DAY2_COMPLETE], 'day2_complete_date'),
+        ('calls', [FunnelStage.STRATEGY_CALL_BOOKED], 'strategy_call_booked_date'),
+        ('sales', [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED], 'sale_closed_date'),
+    ]
+
+    mtd = {k: 0 for k, _, _ in _STAGE_MAP}
+    for r in drivers.values():
+        # Skip legacy drivers whose dates are inferred from createdTime, not real Airtable dates
+        if getattr(r, '_date_is_fallback', False):
+            continue
+        for key, stages, date_attr in _STAGE_MAP:
+            if r.current_stage in stages and _is_this_month(getattr(r, date_attr, None)):
+                mtd[key] += 1
+
+    sales_needed = max(0, SALES_TARGET - mtd['sales'])
+
+    # --- Conversion rates (actual MTD, with sensible defaults) ---
+    def _rate(num, denom, default):
+        return num / denom if denom > 0 else default
+
+    r_msg_reply = _rate(mtd['replied'], mtd['messaged'], 0.10)
+    r_reply_link = _rate(mtd['link_sent'], mtd['replied'], 0.50)
+    r_link_reg = _rate(mtd['registered'], mtd['link_sent'], 0.15)
+    r_reg_day1 = _rate(mtd['day1'], mtd['registered'], 0.70)
+    r_day1_day2 = _rate(mtd['day2'], mtd['day1'], 0.60)
+    r_day2_call = _rate(mtd['calls'], mtd['day2'], 0.40)
+    r_call_sale = _rate(mtd['sales'], mtd['calls'], 0.25)
+
+    # Reverse funnel: messages needed to close remaining sales
+    _total_rate = r_msg_reply * r_reply_link * r_link_reg * r_reg_day1 * r_day1_day2 * r_day2_call * r_call_sale
+    messages_needed = int(sales_needed / _total_rate) if _total_rate > 0 else 0
+    messages_per_day = int(messages_needed / days_remaining) if days_remaining > 0 else 0
+
+    # On-pace check
+    expected_sales_by_now = round(SALES_TARGET * (days_elapsed / days_in_month), 1)
+    pace = "ahead" if mtd['sales'] >= expected_sales_by_now else "behind"
+
+    # ── ROW 1: Position vs Plan ──
+    st.markdown("### 🎯 Position vs Plan")
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Sales Target", f"{mtd['sales']} / {SALES_TARGET}",
+              f"{sales_needed} to go" if sales_needed > 0 else "TARGET HIT! 🎉")
+    p2.metric("Days Left", days_remaining, f"Day {days_elapsed} of {days_in_month}")
+    p3.metric("Pace", f"{pace.upper()}", f"expect {expected_sales_by_now} by today")
+    p4.metric("Pipeline", f"{mtd['replied'] + mtd['link_sent'] + mtd['registered']} active",
+              "replied + link sent + registered")
+
+    if mtd['sales'] >= SALES_TARGET:
+        st.success(f"🎉 **TARGET HIT!** {mtd['sales']} sales this month!")
+
+    st.divider()
+
+    # ── ROW 2: Today's Actions ──
+    st.markdown("### ⚡ Today's Actions to Get on Plan")
+    a1, a2, a3 = st.columns(3)
+    a1.metric("📨 Messages to Send Today", messages_per_day,
+              f"{int(messages_per_day/2)} FB + {int(messages_per_day/2)} IG")
+    a2.metric("📩 Follow-ups Due", sum(
+        1 for r in drivers.values()
+        if r.current_stage in [FunnelStage.MESSAGED, FunnelStage.OUTREACH, FunnelStage.LINK_SENT,
+                               FunnelStage.BLUEPRINT_LINK_SENT, FunnelStage.REPLIED]
+        and _is_this_month(r.outreach_date or r.last_activity)
+    ))
+    a3.metric("🔥 Conversion Rate", f"{round(r_msg_reply * 100)}% reply",
+              f"msg→sale: {round(_total_rate * 100, 2)}%")
+
+    st.divider()
+
+    # ── ROW 3: Today's Activity ──
+    st.markdown("### 📈 Today's Activity")
+    def _is_today(dt_val):
+        d = _normalize_dt(dt_val)
+        return d and d.date() == now.date() if d else False
+
+    # Count activity that happened TODAY
+    today_counts = {k: 0 for k, _, _ in _STAGE_MAP}
+    today_names = {k: [] for k, _, _ in _STAGE_MAP}
+    for r in drivers.values():
+        if getattr(r, '_date_is_fallback', False):
+            continue
+        for key, stages, date_attr in _STAGE_MAP:
+            stage_date = getattr(r, date_attr, None)
+            if r.current_stage in stages and _is_today(stage_date):
+                today_counts[key] += 1
+                today_names[key].append(r.first_name or r.full_name.split(' ')[0])
+
+    t1, t2, t3, t4, t5, t6, t7, t8 = st.columns(8)
+    for col, (key, _, _) in zip([t1, t2, t3, t4, t5, t6, t7, t8], _STAGE_MAP):
+        label = key.replace('_', ' ').title()
+        count = today_counts[key]
+        names = today_names[key]
+        delta = ', '.join(names[:3]) + ('...' if len(names) > 3 else '') if names else None
+        col.metric(label, count, delta=delta, delta_color="normal" if count > 0 else "off")
+
+    st.divider()
+
+    # ── ROW 4: Pipeline Snapshot ──
+    st.markdown("### 📊 Pipeline This Month")
+    s1, s2, s3, s4, s5, s6, s7, s8 = st.columns(8)
+    s1.metric("Messaged", mtd['messaged'])
+    s2.metric("Replied", mtd['replied'])
+    s3.metric("Link Sent", mtd['link_sent'])
+    s4.metric("Registered", mtd['registered'])
+    s5.metric("Day 1", mtd['day1'])
+    s6.metric("Day 2", mtd['day2'])
+    s7.metric("Calls", mtd['calls'])
+    s8.metric("Sales", mtd['sales'])
+
+    st.divider()
+
+    # DRIVER SEARCH BAR
+    # ---------------------------------------------------------
+    with st.expander("🔍 **Search All Drivers**", expanded=False):
+        search_col1, search_col2 = st.columns([3, 1])
+        with search_col1:
+            driver_search = st.text_input("Search by name, email, or notes...", key="dashboard_driver_search", label_visibility="collapsed", placeholder="Search drivers...")
+
+        if driver_search:
+            # Search across all drivers
+            search_results = []
+            for r in drivers.values():
+                search_lower = driver_search.lower()
+                if (search_lower in r.full_name.lower() or
+                    search_lower in str(r.email).lower() or
+                    search_lower in str(r.notes or '').lower() or
+                    search_lower in str(r.facebook_url or '').lower() or
+                    search_lower in str(r.instagram_url or '').lower()):
+                    search_results.append(r)
+
+            st.caption(f"Found {len(search_results)} matches")
+
+            if search_results:
+                for r in search_results[:20]:  # Limit to 20 results
+                    with st.container():
+                        cols = st.columns([3, 2, 2, 1])
+                        cols[0].write(f"**{r.full_name}**")
+                        cols[1].caption(r.current_stage.value if hasattr(r.current_stage, 'value') else str(r.current_stage))
+                        if r.facebook_url:
+                            cols[2].markdown(f"[FB]({r.facebook_url})", unsafe_allow_html=True)
+                        elif r.instagram_url:
+                            cols[2].markdown(f"[IG]({r.instagram_url})", unsafe_allow_html=True)
+                        if cols[3].button("📇", key=f"search_open_{r.email}", help="Open Contact Card"):
+                            st.session_state['search_selected_driver'] = r.email
+                            st.rerun()
+
+                if len(search_results) > 20:
+                    st.info(f"Showing first 20 of {len(search_results)} results")
+
+    # Show contact card if selected from search — routed through early check
+    if 'search_selected_driver' in st.session_state:
+        st.session_state['_open_driver_card'] = st.session_state.pop('search_selected_driver')
+
+    # PIPELINE BOARD
+    # ---------------------------------------------------------
+    c_head, c_refresh = st.columns([3, 0.5])
+    c_head.subheader("📅 Pipeline — Current Month")
+    if c_refresh.button("🔄", help="Refresh pipeline — fetch latest from Airtable", use_container_width=True):
+        load_dashboard_data.clear()
+        st.rerun()
+    
+    enable_wide = c_head.checkbox("↔️ Wide View", value=False, help="Enable horizontal scrolling for wider columns.")
+
+    if enable_wide:
+        st.markdown("""
+            <style>
+            /* Force horizontal scroll for column containers */
+            div[data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                overflow-x: auto !important;
+                padding-bottom: 10px;
+            }
+            /* Force minimum width on columns within the block */
+            div[data-testid="column"] {
+                min-width: 300px !important;
+                flex: 0 0 auto !important;
+            }
+            /* Adjust main container to not clip */
+            .block-container {
+                max-width: 100% !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+
+
+
+
+    # Race review debug removed — was firing on every rerun and bloating logs
+
+    now = datetime.now()
+    
+    # Logic
+
+    def _date_matches_filter(d):
+        """Check if a date falls within the visible pipeline window.
+        
+        Rules:
+        - Always show current month activity
+        - First 7 days of a new month: also show previous month's active drivers
+          (grace period so they don't vanish overnight on the 1st)
+        - Any driver with stage date older than 14 days is hidden regardless
+        """
+        if not d:
+            return False
+        # Current month — always visible
+        if d.month == now.month and d.year == now.year:
+            return True
+        # Grace window: first 7 days of month → show previous month too
+        if now.day <= 7:
+            prev_month = now.month - 1 if now.month > 1 else 12
+            prev_year = now.year if now.month > 1 else now.year - 1
+            if d.month == prev_month and d.year == prev_year:
+                # But still enforce 14-day hard cutoff
+                age_days = (now - d).days if isinstance(d, datetime) else 999
+                return age_days <= 14
+        return False
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PIPELINE VISIBILITY — Airtable is the SINGLE source of truth.
+    # Every stage uses its stage-specific date. ZERO fallbacks.
+    # Current month filter for ALL stages. No exceptions.
+    # Google Sheets feed Airtable. Airtable feeds the pipeline.
+    # ═══════════════════════════════════════════════════════════════════
+
+    def is_in_timeframe(r, date_attr):
+        """Show contact only if its STAGE DATE is in the current month.
+        No fallbacks. If the stage date is missing, the contact is not visible.
+        Airtable is the bible — if the date isn't there, fix the data."""
+        d = _normalize_dt(getattr(r, date_attr, None))
+        if not d:
+            return False
+        return _date_matches_filter(d)
+
+    def _driver_sort_key(r, date_attr):
+        """Sort by stage date only. Most recent first."""
+        d = _normalize_dt(getattr(r, date_attr, None))
+        return (d or datetime.min, r.full_name or r.email or '')
+
+    # 1. Pipeline Stages Definition
+    # --- MAIN PIPELINE STAGES (9 columns) ---
+    # Each driver stays in their actual stage column.
+    # Cards change colour when a driver needs follow-up (24h+ stale).
+    STAGES = [
+        {"label": "Messaged", "val": [FunnelStage.MESSAGED, FunnelStage.OUTREACH], "date_attr": 'outreach_date'},
+        {"label": "Replied", "val": [FunnelStage.REPLIED], "date_attr": 'replied_date'},
+        {"label": "Link Sent", "val": [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT], "date_attr": 'link_sent_date'},
+        {"label": "Race Review", "val": [FunnelStage.RACE_WEEKEND, FunnelStage.RACE_REVIEW_COMPLETE], "date_attr": 'race_weekend_review_date'},
+        {"label": "Registered", "val": [FunnelStage.BLUEPRINT_STARTED, FunnelStage.REGISTERED], "date_attr": 'registered_date'},
+        {"label": "Day 1", "val": [FunnelStage.DAY1_COMPLETE], "date_attr": 'day1_complete_date'},
+        {"label": "Day 2", "val": [FunnelStage.DAY2_COMPLETE], "date_attr": 'day2_complete_date'},
+        {"label": "Call Booked", "val": [FunnelStage.STRATEGY_CALL_BOOKED], "date_attr": 'strategy_call_booked_date'},
+        {"label": "Clients / Won", "val": [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED], "date_attr": 'sale_closed_date'},
+    ]
+
+    def _needs_follow_up(r, date_attr):
+        """True if driver has been at this stage for 24h+. Stage date only."""
+        if r.current_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
+            return False
+        d = getattr(r, date_attr, None)
+        if d and isinstance(d, datetime):
+            return (now - d).total_seconds() / 3600 >= 24
+        return False
+
+    # Stall thresholds (hours) — drivers past this are flagged with urgency colors
+    STALL_THRESHOLDS = {
+        FunnelStage.MESSAGED: 48,           # 48h no reply
+        FunnelStage.LINK_SENT: 24,          # 24h no action
+        FunnelStage.BLUEPRINT_LINK_SENT: 24,
+        FunnelStage.RACE_REVIEW_COMPLETE: 24,
+        FunnelStage.RACE_WEEKEND: 24,
+        FunnelStage.DAY1_COMPLETE: 24,
+        FunnelStage.DAY2_COMPLETE: 24,
+    }
+
+    # Lead magnet stages (shown in separate section below pipeline)
+    LEAD_MAGNET_STAGES = [
+        {"label": "Sleep Test", "val": [FunnelStage.SLEEP_TEST_COMPLETED], "date_attr": 'sleep_test_date'},
+        {"label": "Mindset Quiz", "val": [FunnelStage.MINDSET_QUIZ_COMPLETED], "date_attr": 'mindset_quiz_date'},
+        {"label": "Flow Profile", "val": [FunnelStage.FLOW_PROFILE_COMPLETED], "date_attr": 'flow_profile_date'},
+    ]
+
+    # Disqualified statuses - drivers with these are filtered out of pipeline view
+    DISQUALIFIED_STATUSES = [FunnelStage.NOT_A_FIT, FunnelStage.DOES_NOT_REPLY, FunnelStage.NO_SOCIALS]
+
+    # 2. Render Board
+
+    # SELF-HEALING AUDIT REMOVED — was auto-promoting thousands of Contact drivers
+    # to Messaged based on having a social URL, flooding the pipeline with false entries.
+    # Airtable is the source of truth. Stages only change via actual messaging activity.
+
+    def _days_at_stage(r, date_attr):
+        """Days since entering current stage. Stage date only. No fallbacks."""
+        d = getattr(r, date_attr, None)
+        if d and isinstance(d, datetime):
+            return max(0, (now - d).days)
+        return 0
+
+    # Helper: is this driver stalled? (past their threshold)
+    def _is_stalled(r):
+        threshold = STALL_THRESHOLDS.get(r.current_stage)
+        if not threshold:
+            return r.days_in_current_stage > 3 and r.current_stage not in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]
+        # Find the matching stage date_attr
+        for s in STAGES:
+            if r.current_stage in s['val']:
+                d = getattr(r, s['date_attr'], None)
+                if d and isinstance(d, datetime):
+                    return (now - d).total_seconds() / 3600 >= threshold
+                break
+        return False
+
+    # ---- FOLLOW-UP ALERT BANNER ----
+    _followup_count = sum(
+        1 for _r in drivers.values()
+        if _r.current_stage not in DISQUALIFIED_STATUSES
+        and any(
+            _r.current_stage in s['val'] and _needs_follow_up(_r, s['date_attr'])
+            for s in STAGES
+        )
+    )
+    if _followup_count > 0:
+        st.warning(f"⚠️ **{_followup_count} driver{'s' if _followup_count != 1 else ''} need follow-up** — look for 🟠🔴 cards below")
+
+    # --- PIPELINE VIEW ---
+    # Drivers stay in their actual stage column.
+    # Cards turn colour when they need follow-up (24h+ stale).
+    # A clipboard icon lets you copy a suggested follow-up message.
+    # IMPORTANT: Only drivers with activity in the selected timeframe are shown.
+    cols = st.columns(len(STAGES))
+
+    for idx, stage in enumerate(STAGES):
+        with cols[idx]:
+            # Header
+            st.markdown(f"**{stage['label']}**")
+
+            # Collect ALL drivers at this stage
+            target_vals = [s.value for s in stage['val']]
+            all_stage_drivers = [
+                r for r in drivers.values()
+                if (r.current_stage in stage['val'] or r.current_stage.value in target_vals)
+                and r.current_stage not in DISQUALIFIED_STATUSES
+            ]
+
+            # FILTER — only show drivers whose stage date is in current month
+            stage_drivers_raw = [r for r in all_stage_drivers if is_in_timeframe(r, stage['date_attr'])]
+
+            # DEDUPLICATE — same person can appear under multiple keys (email + no_email_ slug)
+            seen_ids = set()
+            stage_drivers = []
+            for r in stage_drivers_raw:
+                # Prefer Airtable record ID, fall back to full name
+                dedup_key = getattr(r, 'airtable_record_id', None) or r.full_name.lower().strip()
+                if dedup_key and dedup_key in seen_ids:
+                    continue
+                if dedup_key:
+                    seen_ids.add(dedup_key)
+                stage_drivers.append(r)
+
+            # SORT: Latest activity first, then alphabetical
+            stage_drivers.sort(key=lambda x: _driver_sort_key(x, stage['date_attr']), reverse=True)
+
+            # Count Badge + follow-up count
+            fu_in_col = sum(1 for r in stage_drivers if _needs_follow_up(r, stage['date_attr']))
+            count_text = f"{len(stage_drivers)}"
+            if fu_in_col > 0:
+                count_text += f" · 📩{fu_in_col}"
+            st.caption(count_text)
+            st.divider()
+
+            for ri, r in enumerate(stage_drivers):
+                 # 1. Days at stage
+                 days = _days_at_stage(r, stage['date_attr'])
+                 needs_fu = _needs_follow_up(r, stage['date_attr'])
+
+                 # 2. Urgency icon — colour changes when follow-up needed
+                 if r.is_disqualified:
+                     status_icon = "🚫"
+                 elif r.current_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
+                     status_icon = "✅"
+                 elif needs_fu and days >= 7:
+                     status_icon = "🔴"
+                 elif needs_fu and days >= 3:
+                     status_icon = "🟠"
+                 elif needs_fu:
+                     status_icon = "🟡"
+                 else:
+                     status_icon = "🟢"
+
+                 # 3. Name — check real name first, then extract from email slug
+                 real_name = f"{r.first_name} {r.last_name}".strip()
+                 if real_name:
+                     display_name = real_name
+                 elif r.email.startswith("no_email_"):
+                     display_name = r.email.replace("no_email_", "").replace("_", " ").title()
+                 elif '@' in r.email:
+                     display_name = r.email.split('@')[0]
+                 elif r.email and not r.email.startswith("_unknown"):
+                     display_name = r.email.replace("_", " ").title()
+                 else:
+                     display_name = "Unknown"
+
+                 # 4. Build label: icon name + day counter + follow-up indicator
+                 btn_label = f"{status_icon} {display_name}"
+                 if days > 0 and r.current_stage not in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
+                     btn_label += f" · {days}d"
+
+                 # ✅ = follow-up sent recently, 📩 = follow-up needed
+                 import re as _re_pipe
+                 _r_notes = r.notes or ""
+                 _fu_sent_m = _re_pipe.search(r'\[(\d{2} \w{3} \d{2}:\d{2}) ✅\]', _r_notes)
+                 _fu_sent_ok = False
+                 if _fu_sent_m:
+                     try:
+                         _fu_ts = datetime.strptime(_fu_sent_m.group(1), "%d %b %H:%M").replace(year=now.year)
+                         _fu_sent_ok = (now - _fu_ts).total_seconds() / 3600 <= 48
+                     except ValueError:
+                         pass
+                 if _fu_sent_ok:
+                     btn_label += " ✅"
+                 elif needs_fu:
+                     btn_label += " 📩"
+
+                 # BUTTON TRIGGER (DIALOG) — set session state, early check opens it
+                 if st.button(btn_label, key=f"btn_card_{r.email}_{idx}_{ri}", use_container_width=True):
+                     st.session_state['_open_driver_card'] = r.email
+                     st.rerun()
+
+ 
+    # =================================================================
+    # LEAD MAGNETS — Sleep Test / Mindset Quiz / Flow Profile
+    # =================================================================
+    st.divider()
+    with st.expander("🧲 Lead Magnets — Sleep Test · Mindset Quiz · Flow Profile", expanded=False):
+        lm_cols = st.columns(len(LEAD_MAGNET_STAGES))
+        for lm_idx, lm_stage in enumerate(LEAD_MAGNET_STAGES):
+            with lm_cols[lm_idx]:
+                st.markdown(f"**{lm_stage['label']}**")
+
+                lm_target_vals = [s.value for s in lm_stage['val']]
+                lm_drivers = [
+                    r for r in drivers.values()
+                    if (r.current_stage in lm_stage['val'] or r.current_stage.value in lm_target_vals)
+                    and r.current_stage not in DISQUALIFIED_STATUSES
+                ]
+                lm_drivers.sort(key=lambda x: _driver_sort_key(x, lm_stage['date_attr']), reverse=True)
+
+                st.caption(f"{len(lm_drivers)} completed")
+                st.divider()
+
+                for r in lm_drivers:
+                    name = r.full_name.strip() if r.full_name else ""
+                    if not name:
+                        if r.email.startswith("no_email_"):
+                            name = r.email.replace("no_email_", "").replace("_", " ").title()
+                        elif '@' in r.email:
+                            name = r.email.split('@')[0]
+                        else:
+                            name = r.email or "Unknown"
+                    d_val = getattr(r, lm_stage['date_attr'], None)
+                    d_str = d_val.strftime('%d %b') if d_val else ""
+                    btn_lbl = f"🟢 {name}"
+                    if d_str:
+                        btn_lbl += f"\n📅 {d_str}"
+                    if st.button(btn_lbl, key=f"lm_{r.email}_{lm_idx}", use_container_width=True):
+                        st.session_state['_open_driver_card'] = r.email
+                        st.rerun()
+
+    # FINANCIALS (Bottom)
+    st.divider()
+    rev_metrics = dashboard.get_revenue_metrics()
+    st.header("💰 Monthly Targets & Forecast")
+    
+    f_col1, f_col2 = st.columns([3, 1])
+    
+    with f_col1:
+        st.subheader(f"Revenue Progress: {rev_metrics['progress_pct']:.1f}%")
+        st.progress(min(rev_metrics['progress_pct'] / 100, 1.0))
+        
+        fm1, fm2, fm3 = st.columns(3)
+        fm1.metric("Actual Revenue", f"£{rev_metrics['actual']:,.0f}")
+        fm2.metric("Target", f"£{rev_metrics['target']:,.0f}")
+        fm3.metric("Remaining Needed", f"£{max(0, rev_metrics['target'] - rev_metrics['actual']):,.0f}")
+    
+    with f_col2:
+        st.subheader("Calculator")
+        needed = max(0, rev_metrics['target'] - rev_metrics['actual'])
+        avg_sale = 4000
+        sales_needed = needed / avg_sale if avg_sale > 0 else 0
+        
+        st.write(f"To hit target, you need **{sales_needed:.1f}** more sales.")
+        
+        # Simple conversion calc
+        conv_rate_call_to_sale = 0.25 
+        calls_needed = sales_needed / conv_rate_call_to_sale
+        
+        st.caption(f"Estimated Calls Needed: **{int(calls_needed)}**")
+
+def render_race_outreach(dashboard):
+    st.subheader("🏁 Race Result Outreach Tool")
+    
+    import json
+
+    # =====================================================================
+    # PERSISTENT STORAGE FOR CIRCUITS & CHAMPIONSHIPS
+    # Uses Airtable 'Settings' table (survives Streamlit Cloud restarts)
+    # Falls back to JSON files + session state if Airtable unavailable
+    # =====================================================================
+    settings = load_settings_store()
+
+    # --- CIRCUITS: Load from Airtable → file → session state (merge all) ---
+    if 'saved_circuits' not in st.session_state:
+        # 1. Try Airtable first (persistent across container recycles)
+        at_circuits = []
+        if settings and settings.is_available:
+            at_circuits = settings.get('circuits', []) or []
+        # 2. Also check local file (committed to git = always has baseline)
+        file_circuits = dashboard.race_manager.get_all_circuits() or []
+        # 3. Merge all sources
+        st.session_state.saved_circuits = sorted(list(set(at_circuits + file_circuits)))
+
+    # Sync: merge race_manager circuits (from file) on every run
+    rm_circuits = dashboard.race_manager.get_all_circuits() or []
+    merged_circuits = sorted(list(set(st.session_state.saved_circuits + rm_circuits)))
+    st.session_state.saved_circuits = merged_circuits
+
+    saved_circuits = st.session_state.saved_circuits
+
+    # --- CHAMPIONSHIPS: Load from Airtable → file → session state ---
+    if 'saved_championships_loaded' not in st.session_state:
+        at_champs = []
+        if settings and settings.is_available:
+            at_champs = settings.get('championships', []) or []
+        # Local file fallback (committed baseline)
+        c_file = os.path.join(DATA_DIR, "saved_championships.json")
+        file_champs = []
+        if os.path.exists(c_file):
+            try:
+                with open(c_file, 'r') as f:
+                    file_champs = json.load(f)
+            except:
+                pass
+        # Merge Airtable + file into session
+        session_added = st.session_state.get('session_added_championships', [])
+        all_champs = sorted(list(set(at_champs + file_champs + session_added)))
+        st.session_state.session_added_championships = all_champs
+        st.session_state.saved_championships_loaded = True
+
+    session_added = st.session_state.get('session_added_championships', [])
+    saved_champs = sorted(list(set(session_added)))
+
+    # --- Helper: persist championships to Airtable + file (best-effort) ---
+    def _persist_championships():
+        # 1. Write to Airtable (persistent)
+        if settings and settings.is_available:
+            settings.set('championships', sorted(saved_champs))
+        # 2. Also write to local file (backup / within-session)
+        try:
+            c_file = os.path.join(DATA_DIR, "saved_championships.json")
+            with open(c_file, 'w') as f:
+                json.dump(sorted(saved_champs), f)
+        except:
+            pass
+
+    # --- Helper: persist circuits to Airtable + file + race_manager ---
+    def _persist_circuit(name):
+        if not name:
+            return
+        name = name.strip()
+        if name not in st.session_state.saved_circuits:
+            st.session_state.saved_circuits.append(name)
+            st.session_state.saved_circuits = sorted(st.session_state.saved_circuits)
+        # 1. Write to Airtable (persistent)
+        if settings and settings.is_available:
+            settings.set('circuits', st.session_state.saved_circuits)
+        # 2. Also update race_manager + local file (backup)
+        dashboard.race_manager.save_circuit(name)
+
+    # Sticky Global Championship
+    if 'global_championship' not in st.session_state:
+        st.session_state.global_championship = saved_champs[0] if saved_champs else ""
+
+    # =====================================================================
+    # CALLBACKS
+    # =====================================================================
+    def on_circuit_select():
+        if st.session_state.circuit_select:
+            st.session_state.event_name_input = st.session_state.circuit_select
+
+    def on_champ_select():
+        val = st.session_state.champ_select_box
+        if val and val != "➕ Add New...":
+            st.session_state.global_championship = val
+            st.toast(f"Championship set to: {val}")
+
+    def save_new_champ_callback():
+        val = st.session_state.new_champ_entry_seamless
+        if val:
+            val = val.strip()
+            st.session_state.global_championship = val
+            # Track in session so it appears immediately
+            session_added = st.session_state.get('session_added_championships', [])
+            if val not in session_added:
+                session_added.append(val)
+                st.session_state.session_added_championships = session_added
+            # Also persist to file
+            _persist_championships()
+            st.toast(f"Added & Set: {val}")
+
+    # =====================================================================
+    # LAYOUT
+    # =====================================================================
+    rc_hist, rc_champ, rc_input, rc_btn = st.columns([1.5, 1.5, 2.0, 0.8])
+
+    with rc_hist:
+        st.selectbox(
+            "📜 Circuit History",
+            options=[""] + saved_circuits,
+            key="circuit_select",
+            on_change=on_circuit_select,
+            help="Select a previously used circuit to auto-fill."
+        )
+
+    with rc_champ:
+        curr = st.session_state.global_championship
+        opts = saved_champs + ["➕ Add New..."]
+
+        idx = 0
+        if curr in opts:
+            idx = opts.index(curr)
+
+        selected_champ = st.selectbox(
+            "🏆 Target Champ",
+            options=opts,
+            index=idx,
+            key="champ_select_box",
+            on_change=on_champ_select,
+            help="Select a championship or add a new one."
+        )
+
+        if selected_champ == "➕ Add New...":
+            st.text_input(
+                "Name of New Championship",
+                placeholder="Type & Press Enter...",
+                key="new_champ_entry_seamless",
+                on_change=save_new_champ_callback,
+                label_visibility="collapsed"
+            )
+            st.caption("Type name and press **Enter** to save.")
+
+    with rc_input:
+        # Pre-fill circuit from Speedhive if available (must happen BEFORE widget renders)
+        if not st.session_state.get('event_name_input'):
+            for _prefill_key in list(st.session_state.keys()):
+                if _prefill_key.startswith('sh_sessions_'):
+                    _prefill_ev, _prefill_ss = st.session_state[_prefill_key]
+                    if _prefill_ev:
+                        _prefill_loc = _prefill_ev.get('location', {}).get('name', '')
+                        if _prefill_loc:
+                            st.session_state['event_name_input'] = _prefill_loc
+                    break
+
+        event_name_input = st.text_input(
+            "Circuit / Event Name",
+            placeholder="e.g. Donington Park",
+            help="Type name and press ENTER to update messages.",
+            key="event_name_input"
+        )
+
+    with rc_btn:
+        st.write("")  # Spacer
+        st.write("")
+        if st.button("🔄 Update", help="Save circuit & championship, then analyze drivers."):
+            if event_name_input:
+                _persist_circuit(event_name_input)
+            curr_champ = st.session_state.get('global_championship', '')
+            if curr_champ:
+                session_added = st.session_state.get('session_added_championships', [])
+                if curr_champ not in session_added:
+                    session_added.append(curr_champ)
+                    st.session_state.session_added_championships = session_added
+                _persist_championships()
+            # Flag to trigger analysis after data section renders
+            st.session_state['_run_analysis_on_update'] = True
+            st.rerun()
+
+    if event_name_input:
+        event_name = event_name_input
+    else:
+        event_name = "the circuit"
+        st.caption("⚠️ Type a circuit name above and press **Enter** (or Update) to customize messages.")
+
+    # ── Chrome extension sync helper ──
+    # Uses st.markdown (unsafe_allow_html) so the hidden div lands inside a
+    # Streamlit iframe that content-streamlit.js can search via findElementInFrames().
+    # NOTE: only called ONCE, after the card loop, so session_state has the AI msg.
+    def _render_ext_sync_div():
+        """Inject hidden div for Chrome extension to read circuit/champ/AI message."""
+        import json as _json_mod
+        _c = (event_name_input or "").replace('"', '&quot;')
+        _ch = st.session_state.get('global_championship', '').replace('"', '&quot;')
+        _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
+        # Build per-driver AI message dict (JSON, HTML-escaped for attribute)
+        _ai_dict = st.session_state.get('_ext_ai_messages', {})
+        _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
+        st.markdown(
+            f'<div id="ag-active-circuit" data-circuit="{_c}" data-champ="{_ch}" '
+            f'data-ai-msg="{_ai}" data-ai-messages="{_ai_json}" style="display:none;"></div>',
+            unsafe_allow_html=True
+        )
+
+    # 2. Input Data
+    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL (BSB)"], key="race_input_method", horizontal=True)
+
+    raw_results_list = []
+    _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
+    _speedhive_event = None
+
+    if input_method == "🌐 Import from Speedhive":
+        try:
+            from speedhive_client import SpeedhiveClient, KNOWN_ORGS
+            _sh_import_ok = True
+        except ImportError as _imp_err:
+            st.error(f"Speedhive client not available: {_imp_err}")
+            SpeedhiveClient = None
+            KNOWN_ORGS = {}
+            _sh_import_ok = False
+
+        if _sh_import_ok:
+            _sh_client = SpeedhiveClient()
+
+            # Load linked orgs from settings (Airtable-persisted) + built-in KNOWN_ORGS
+            if 'sh_linked_orgs' not in st.session_state:
+                _stored_orgs = {}
+                if settings and settings.is_available:
+                    _stored_orgs = settings.get('speedhive_orgs', {}) or {}
+                # Merge with built-in defaults (stored takes priority)
+                _merged = dict(KNOWN_ORGS)
+                _merged.update(_stored_orgs)
+                st.session_state.sh_linked_orgs = _merged
+            _linked_orgs = st.session_state.sh_linked_orgs
+
+            # --- UI: Two modes — Browse linked championship OR paste a URL ---
+            _sh_mode_options = list(_linked_orgs.keys()) + ["📋 Paste URL / Link New Championship"]
+            _sh_mode = st.selectbox(
+                "🏁 Championship",
+                options=_sh_mode_options,
+                key="sh_champ_select",
+                help="Select a linked championship to browse events, or paste a Speedhive URL"
+            )
+
+            _sh_event_id = None
+            _sh_event = None
+            _sh_sessions = []
+
+            if _sh_mode == "📋 Paste URL / Link New Championship":
+                # --- Fallback: paste URL (also used to link new championships) ---
+                _sh_url = st.text_input(
+                    "Speedhive Event URL or ID",
+                    placeholder="https://speedhive.mylaps.com/events/3347675",
+                    help="Paste any Speedhive event URL. We'll auto-detect the championship and link it for next time.",
+                    key="speedhive_url_input"
+                )
+                if _sh_url:
+                    _sh_event_id = _sh_client.extract_event_id(_sh_url)
+                    if not _sh_event_id:
+                        st.error("Could not extract event ID from that URL.")
+
+                    # Discover and offer to link the organization
+                    if _sh_event_id:
+                        _disc_key = f"sh_discovered_org_{_sh_event_id}"
+                        if _disc_key not in st.session_state:
+                            with st.spinner("Discovering championship..."):
+                                _disc = _sh_client.discover_org_from_event(_sh_event_id)
+                                st.session_state[_disc_key] = _disc
+                        _disc = st.session_state[_disc_key]
+                        if _disc:
+                            _org_name = _disc['name']
+                            _already_linked = any(v.get('org_id') == _disc['org_id'] for v in _linked_orgs.values())
+                            if _already_linked:
+                                st.info(f"✅ **{_org_name}** is already linked. Select it from the dropdown above next time!")
+                            else:
+                                # Offer to link with a short name
+                                st.info(f"🔗 Found: **{_org_name}** ({_disc.get('city', '')}, {_disc.get('country', '')})")
+                                _link_name = st.text_input(
+                                    "Save as (short name for dropdown)",
+                                    value=_org_name.split()[0] if _org_name else "",
+                                    key="sh_link_name",
+                                    help="E.g. 'CVMA', 'Bemsee', 'WERA' — whatever you'll recognise"
+                                )
+                                if st.button("🔗 Link Championship", key="sh_link_btn"):
+                                    if _link_name:
+                                        _linked_orgs[_link_name] = {
+                                            "org_id": _disc['org_id'],
+                                            "name": _org_name,
+                                            "sport": _disc.get('sport', 'Bike')
+                                        }
+                                        st.session_state.sh_linked_orgs = _linked_orgs
+                                        # Persist to Airtable
+                                        if settings and settings.is_available:
+                                            settings.set('speedhive_orgs', _linked_orgs)
+                                        st.success(f"✅ **{_link_name}** linked! It will appear in the dropdown from now on.")
+                                        st.rerun()
+                else:
+                    st.caption("⬆️ Paste a Speedhive event URL to link a new championship")
+
+            else:
+                # --- Browse mode: show recent events for this championship ---
+                _org_info = _linked_orgs.get(_sh_mode, {})
+                _org_id = _org_info.get('org_id')
+
+                if _org_id:
+                    _events_key = f"sh_org_events_{_org_id}"
+                    if _events_key not in st.session_state:
+                        with st.spinner(f"Loading {_sh_mode} events..."):
+                            _org_events = _sh_client.fetch_organization_events(_org_id)
+                            st.session_state[_events_key] = _org_events
+                    _org_events = st.session_state[_events_key]
+
+                    if not _org_events:
+                        st.warning(f"No events found for {_sh_mode} on Speedhive.")
+                    else:
+                        # Show recent events as a selectbox (most recent first, already sorted)
+                        _recent_events = _org_events[:15]  # Show last 15 events
+                        _event_options = {
+                            e['id']: f"{e['startDate']}  —  {e['name']}"
+                            for e in _recent_events
+                        }
+                        _selected_event_id = st.selectbox(
+                            "📅 Select Event",
+                            options=list(_event_options.keys()),
+                            format_func=lambda x: _event_options[x],
+                            key="sh_event_select",
+                            help="Most recent events shown first"
+                        )
+                        if _selected_event_id:
+                            _sh_event_id = _selected_event_id
+
+            # --- Fetch sessions for selected event (shared by both modes) ---
+            if _sh_event_id:
+                try:
+                    _sh_cache_key = f"sh_sessions_{_sh_event_id}"
+                    if _sh_cache_key not in st.session_state:
+                        with st.spinner("Fetching sessions from Speedhive..."):
+                            _sh_event = _sh_client.fetch_event(_sh_event_id)
+                            _sh_sessions = _sh_client.fetch_sessions(_sh_event_id)
+                            if _sh_event is None:
+                                st.error(f"Could not reach Speedhive API for event {_sh_event_id}. The service may be down.")
+                            st.session_state[_sh_cache_key] = (_sh_event, _sh_sessions)
+                    else:
+                        _sh_event, _sh_sessions = st.session_state[_sh_cache_key]
+                except Exception as _sh_err:
+                    st.error(f"Error fetching from Speedhive: {_sh_err}")
+                    _sh_sessions = []
+                    _sh_event = None
+
+                if not _sh_sessions:
+                    if _sh_event_id:
+                        st.warning("No sessions found for this event.")
+                else:
+                    if _sh_event:
+                        st.success(f"**{_sh_event['name']}** — {_sh_event.get('location', {}).get('name', 'Unknown venue')}")
+
+                    # Group sessions by type for easy selection
+                    _race_sessions = [s for s in _sh_sessions if s['type'] == 'race']
+                    _qual_sessions = [s for s in _sh_sessions if s['type'] == 'qualify']
+                    _practice_sessions = [s for s in _sh_sessions if s['type'] == 'practice']
+
+                    st.caption(f"Found {len(_race_sessions)} races, {len(_qual_sessions)} qualifying, {len(_practice_sessions)} practice sessions")
+
+                    # Session selector with checkboxes
+                    _sh_selected = []
+
+                    if _race_sessions:
+                        _sel_races = st.multiselect(
+                            "🏁 Race Sessions",
+                            options=[s['id'] for s in _race_sessions],
+                            format_func=lambda x: next((s['group'] for s in _race_sessions if s['id'] == x), str(x)),
+                            default=[s['id'] for s in _race_sessions],  # All races selected by default
+                            key="sh_race_select"
+                        )
+                        _sh_selected.extend(_sel_races)
+
+                    if _qual_sessions:
+                        _sel_quals = st.multiselect(
+                            "⏱️ Qualifying Sessions",
+                            options=[s['id'] for s in _qual_sessions],
+                            format_func=lambda x: next((s['group'] for s in _qual_sessions if s['id'] == x), str(x)),
+                            default=[],  # No qualifying by default
+                            key="sh_qual_select"
+                        )
+                        _sh_selected.extend(_sel_quals)
+
+                    if _sh_selected:
+                        # Fetch results for selected sessions (cached)
+                        _sh_results_key = f"sh_results_{_sh_event_id}_{'_'.join(map(str, sorted(_sh_selected)))}"
+                        if _sh_results_key not in st.session_state:
+                            with st.spinner(f"Fetching results for {len(_sh_selected)} sessions..."):
+                                _all_names = set()
+                                _driver_map = {}
+                                for sid in _sh_selected:
+                                    _cls = _sh_client.fetch_session_results(sid)
+                                    if _cls and _cls.get('rows'):
+                                        _sinfo = next((s for s in _sh_sessions if s['id'] == sid), {})
+                                        for row in _cls['rows']:
+                                            _rname = row.get('name', '').strip()
+                                            if not _rname or _rname.startswith('-'):
+                                                continue
+                                            _all_names.add(_rname)
+                                            if _rname not in _driver_map:
+                                                _driver_map[_rname] = []
+                                            _driver_map[_rname].append({
+                                                'session_name': _sinfo.get('name', ''),
+                                                'session_type': _sinfo.get('type', ''),
+                                                'session_group': _sinfo.get('group', ''),
+                                                'position': row.get('position'),
+                                                'position_in_class': row.get('positionInClass'),
+                                                'best_lap': row.get('bestTime', ''),
+                                                'total_time': row.get('totalTime', ''),
+                                                'laps': row.get('numberOfLaps', 0),
+                                                'best_speed': row.get('bestSpeed', 0),
+                                                'result_class': row.get('resultClass', ''),
+                                                'status': row.get('status', 'Normal'),
+                                                'start_number': row.get('startNumber', ''),
+                                            })
+                                st.session_state[_sh_results_key] = (sorted(_all_names), _driver_map)
+
+                        _sh_names, _sh_driver_map = st.session_state[_sh_results_key]
+                        raw_results_list = _sh_names
+                        _speedhive_driver_results = _sh_driver_map
+                        _speedhive_event = _sh_event
+                        st.session_state['uploaded_timing_names'] = _sh_names
+                        st.success(f"✅ {len(_sh_names)} drivers ready to analyze from Speedhive!")
+
+                        # Show breakdown by race category/class
+                        _class_counts = {}
+                        for _rname, _rdata in _sh_driver_map.items():
+                            _classes = set()
+                            for _sd in _rdata:
+                                _rc = _sd.get('result_class', '').strip()
+                                _sg = _sd.get('session_group', '').strip()
+                                _cls_label = _rc or _sg or 'Unknown'
+                                _classes.add(_cls_label)
+                            for _c in _classes:
+                                _class_counts[_c] = _class_counts.get(_c, 0) + 1
+                        if _class_counts:
+                            _class_parts = [f"**{cls}** ({cnt})" for cls, cnt in sorted(_class_counts.items(), key=lambda x: -x[1])]
+                            st.caption("📋 Categories: " + " · ".join(_class_parts))
+
+                            # Class filter — work through one class at a time
+                            _class_options = ["All Classes"] + sorted(_class_counts.keys(), key=lambda x: _class_counts[x], reverse=True)
+                            _selected_class = st.selectbox(
+                                "🏷️ Filter by class",
+                                options=_class_options,
+                                key="sh_class_filter",
+                                help="Work through one class at a time, then switch to the next"
+                            )
+
+                            if _selected_class and _selected_class != "All Classes":
+                                # Filter raw_results_list to only drivers in the selected class
+                                _filtered_names = []
+                                for _rname in _sh_names:
+                                    if _rname in _sh_driver_map:
+                                        _driver_classes = set()
+                                        for _sd in _sh_driver_map[_rname]:
+                                            _rc = _sd.get('result_class', '').strip()
+                                            _sg = _sd.get('session_group', '').strip()
+                                            _driver_classes.add(_rc or _sg or 'Unknown')
+                                        if _selected_class in _driver_classes:
+                                            _filtered_names.append(_rname)
+                                raw_results_list = _filtered_names
+                                st.session_state['uploaded_timing_names'] = _filtered_names
+                                st.info(f"🏷️ Showing **{len(_filtered_names)}** drivers in **{_selected_class}**")
+    elif input_method == "🕐 Import from Computime":
+        try:
+            from computime_client import ComputimeClient
+            _ct_import_ok = True
+        except ImportError as _ct_err:
+            st.error(f"Computime client not available: {_ct_err}")
+            _ct_import_ok = False
+
+        if _ct_import_ok:
+            _ct_url = st.text_input(
+                "Computime Results URL or MeetID",
+                placeholder="https://www.computime.com.au/.../Resultspage?MeetID=17437",
+                help="Paste any Computime results page URL. We'll auto-download and parse the PDF timing sheets.",
+                key="computime_url_input"
+            )
+
+            _ct_meet_id = ComputimeClient.extract_meet_id(_ct_url) if _ct_url else None
+
+            if _ct_meet_id:
+                _ct_client = ComputimeClient()
+
+                # Cache session list
+                _ct_sessions_key = f"ct_sessions_{_ct_meet_id}"
+                if _ct_sessions_key not in st.session_state:
+                    with st.spinner("Fetching session list from Computime..."):
+                        try:
+                            _ct_sessions = _ct_client.get_sessions(_ct_meet_id)
+                            st.session_state[_ct_sessions_key] = _ct_sessions
+                        except Exception as _ct_err:
+                            st.error(f"Could not reach Computime: {_ct_err}")
+                            _ct_sessions = []
+                            st.session_state[_ct_sessions_key] = []
+
+                _ct_sessions = st.session_state[_ct_sessions_key]
+
+                if _ct_sessions:
+                    _ct_race_sessions = [s for s in _ct_sessions if s['type'] == 'race']
+                    _ct_qual_sessions = [s for s in _ct_sessions if s['type'] == 'qualify']
+                    _ct_practice_sessions = [s for s in _ct_sessions if s['type'] == 'practice']
+
+                    st.caption(f"Found {len(_ct_race_sessions)} races, {len(_ct_qual_sessions)} qualifying, {len(_ct_practice_sessions)} practice sessions")
+
+                    _ct_selected = []
+
+                    if _ct_race_sessions:
+                        _ct_sel_races = st.multiselect(
+                            "🏁 Race Sessions",
+                            options=[s['id'] for s in _ct_race_sessions],
+                            format_func=lambda x: next((s['name'] for s in _ct_race_sessions if s['id'] == x), str(x)),
+                            default=[s['id'] for s in _ct_race_sessions],
+                            key="ct_race_select"
+                        )
+                        _ct_selected.extend(_ct_sel_races)
+
+                    if _ct_qual_sessions:
+                        _ct_sel_quals = st.multiselect(
+                            "⏱️ Qualifying Sessions",
+                            options=[s['id'] for s in _ct_qual_sessions],
+                            format_func=lambda x: next((s['name'] for s in _ct_qual_sessions if s['id'] == x), str(x)),
+                            default=[],
+                            key="ct_qual_select"
+                        )
+                        _ct_selected.extend(_ct_sel_quals)
+
+                    if _ct_selected:
+                        _ct_results_key = f"ct_results_{_ct_meet_id}_{'_'.join(sorted(_ct_selected))}"
+                        if _ct_results_key not in st.session_state:
+                            with st.spinner(f"Downloading & parsing {len(_ct_selected)} timing sheets..."):
+                                _ct_event, _ct_names, _ct_driver_map = _ct_client.extract_driver_results(
+                                    _ct_meet_id,
+                                    selected_sessions=_ct_selected
+                                )
+                                st.session_state[_ct_results_key] = (_ct_event, _ct_names, _ct_driver_map)
+
+                        _ct_event, _ct_names, _ct_driver_map = st.session_state[_ct_results_key]
+                        raw_results_list = _ct_names
+                        _speedhive_driver_results = _ct_driver_map  # Same format — reuse pipeline
+                        _speedhive_event = _ct_event
+                        st.session_state['uploaded_timing_names'] = _ct_names
+                        st.success(f"✅ {len(_ct_names)} drivers ready to analyze from Computime!")
+
+                        if _ct_event.get('name'):
+                            st.info(f"**{_ct_event['name']}** — {_ct_event.get('date', '')}")
+
+                        # Show breakdown by class
+                        _ct_class_counts = {}
+                        for _rname, _rdata in _ct_driver_map.items():
+                            _classes = set()
+                            for _sd in _rdata:
+                                _rc = _sd.get('result_class', '').strip()
+                                if _rc:
+                                    _classes.add(_rc)
+                            for _c in _classes:
+                                _ct_class_counts[_c] = _ct_class_counts.get(_c, 0) + 1
+                        if _ct_class_counts:
+                            _ct_class_parts = [f"**{cls}** ({cnt})" for cls, cnt in sorted(_ct_class_counts.items(), key=lambda x: -x[1])]
+                            st.caption("📋 Categories: " + " · ".join(_ct_class_parts))
+
+                            _ct_class_options = ["All Classes"] + sorted(_ct_class_counts.keys(), key=lambda x: _ct_class_counts[x], reverse=True)
+                            _ct_selected_class = st.selectbox(
+                                "🏷️ Filter by class",
+                                options=_ct_class_options,
+                                key="ct_class_filter",
+                                help="Work through one class at a time"
+                            )
+
+                            if _ct_selected_class and _ct_selected_class != "All Classes":
+                                _ct_filtered = [n for n in _ct_names if any(
+                                    _sd.get('result_class', '').strip() == _ct_selected_class
+                                    for _sd in _ct_driver_map.get(n, [])
+                                )]
+                                raw_results_list = _ct_filtered
+                                st.session_state['uploaded_timing_names'] = _ct_filtered
+                                st.info(f"🏷️ Showing **{len(_ct_filtered)}** drivers in **{_ct_selected_class}**")
+                elif _ct_meet_id:
+                    st.warning("No sessions found for this meeting.")
+
+    elif input_method == "🇬🇧 Import from TSL (BSB)":
+        try:
+            from tsl_timing_client import TSLTimingClient
+            _tsl_import_ok = True
+        except ImportError as _tsl_err:
+            st.error(f"TSL Timing client not available: {_tsl_err}")
+            _tsl_import_ok = False
+
+        if _tsl_import_ok:
+            _tsl_url = st.text_input(
+                "TSL Timing Event URL or ID",
+                placeholder="https://www.tsl-timing.com/event/251804",
+                help="Paste a TSL Timing event URL (used by BSB, BTCC, British GT, etc.)",
+                key="tsl_url_input"
+            )
+
+            _tsl_event_id = TSLTimingClient.extract_event_id(_tsl_url) if _tsl_url else None
+
+            if _tsl_event_id:
+                _tsl_client = TSLTimingClient()
+
+                # Cache session list
+                _tsl_sessions_key = f"tsl_sessions_{_tsl_event_id}"
+                if _tsl_sessions_key not in st.session_state:
+                    with st.spinner("Fetching sessions from TSL Timing..."):
+                        try:
+                            _tsl_title, _tsl_sessions = _tsl_client.get_sessions(_tsl_event_id)
+                            st.session_state[_tsl_sessions_key] = (_tsl_title, _tsl_sessions)
+                        except Exception as _tsl_err:
+                            st.error(f"Could not reach TSL Timing: {_tsl_err}")
+                            st.session_state[_tsl_sessions_key] = ('', [])
+
+                _tsl_title, _tsl_sessions = st.session_state[_tsl_sessions_key]
+
+                if _tsl_sessions:
+                    if _tsl_title:
+                        st.success(f"**{_tsl_title}**")
+
+                    _tsl_race_sessions = [s for s in _tsl_sessions if s['type'] == 'race']
+                    _tsl_qual_sessions = [s for s in _tsl_sessions if s['type'] == 'qualify']
+
+                    # Group races by class for cleaner display
+                    _tsl_classes = sorted(set(s['class_name'] for s in _tsl_race_sessions))
+                    st.caption(f"Found {len(_tsl_race_sessions)} races across {len(_tsl_classes)} classes")
+
+                    _tsl_selected = []
+
+                    if _tsl_race_sessions:
+                        _tsl_sel_races = st.multiselect(
+                            "🏁 Race Sessions",
+                            options=[s['id'] for s in _tsl_race_sessions],
+                            format_func=lambda x: next(
+                                (f"{s['class_name'][:30]} — {s['name']}" for s in _tsl_race_sessions if s['id'] == x),
+                                str(x)
+                            ),
+                            default=[s['id'] for s in _tsl_race_sessions],
+                            key="tsl_race_select"
+                        )
+                        _tsl_selected.extend(_tsl_sel_races)
+
+                    if _tsl_selected:
+                        _tsl_results_key = f"tsl_results_{_tsl_event_id}_{'_'.join(sorted(_tsl_selected))}"
+                        if _tsl_results_key not in st.session_state:
+                            with st.spinner(f"Downloading & parsing {len(_tsl_selected)} timing sheets..."):
+                                _tsl_event, _tsl_names, _tsl_driver_map = _tsl_client.extract_driver_results(
+                                    _tsl_event_id,
+                                    selected_sessions=_tsl_selected
+                                )
+                                st.session_state[_tsl_results_key] = (_tsl_event, _tsl_names, _tsl_driver_map)
+
+                        _tsl_event, _tsl_names, _tsl_driver_map = st.session_state[_tsl_results_key]
+                        raw_results_list = _tsl_names
+                        _speedhive_driver_results = _tsl_driver_map
+                        _speedhive_event = _tsl_event
+                        st.session_state['uploaded_timing_names'] = _tsl_names
+                        st.success(f"✅ {len(_tsl_names)} drivers ready to analyze from TSL Timing!")
+
+                        # Class filter
+                        _tsl_class_counts = {}
+                        for _rname, _rdata in _tsl_driver_map.items():
+                            _classes = set()
+                            for _sd in _rdata:
+                                _rc = _sd.get('result_class', '').strip()
+                                if _rc:
+                                    _classes.add(_rc)
+                            for _c in _classes:
+                                _tsl_class_counts[_c] = _tsl_class_counts.get(_c, 0) + 1
+                        if _tsl_class_counts:
+                            _tsl_class_parts = [f"**{cls}** ({cnt})" for cls, cnt in sorted(_tsl_class_counts.items(), key=lambda x: -x[1])]
+                            st.caption("📋 Categories: " + " · ".join(_tsl_class_parts))
+
+                            _tsl_class_options = ["All Classes"] + sorted(_tsl_class_counts.keys(), key=lambda x: _tsl_class_counts[x], reverse=True)
+                            _tsl_selected_class = st.selectbox(
+                                "🏷️ Filter by class",
+                                options=_tsl_class_options,
+                                key="tsl_class_filter",
+                                help="Work through one class at a time"
+                            )
+
+                            if _tsl_selected_class and _tsl_selected_class != "All Classes":
+                                _tsl_filtered = [n for n in _tsl_names if any(
+                                    _sd.get('result_class', '').strip() == _tsl_selected_class
+                                    for _sd in _tsl_driver_map.get(n, [])
+                                )]
+                                raw_results_list = _tsl_filtered
+                                st.session_state['uploaded_timing_names'] = _tsl_filtered
+                                st.info(f"🏷️ Showing **{len(_tsl_filtered)}** drivers in **{_tsl_selected_class}**")
+                elif _tsl_event_id:
+                    st.warning("No sessions found for this event.")
+
+    else: # Paste Text
+        text_input = st.text_area("Driver List (Name per line)", height=150)
+        if text_input:
+            raw_results_list = text_input.split('\n')
+    
+    col_analyze, col_clear = st.columns([1, 4])
+
+    # Check if Update button flagged an auto-analysis
+    run_analysis = st.session_state.pop('_run_analysis_on_update', False)
+
+    with col_analyze:
+        if st.button("🔍 Analyze & Match Drivers") or run_analysis:
+            if not raw_results_list:
+                if run_analysis:
+                    pass  # Update pressed with no data — just save settings, no error
+                else:
+                    st.error("Please provide driver data.")
+            else:
+                clean_names = [n.strip() for n in raw_results_list if len(n.strip()) > 3]
+
+                with st.spinner(f"Analyzing {len(clean_names)} drivers..."):
+                    _active_champ = st.session_state.get('global_championship', '')
+                    results = dashboard.process_race_results(clean_names, event_name=event_name, championship=_active_champ)
+                    st.session_state.matched_results = results
+
+                    # Save Speedhive race results to matched drivers
+                    if _speedhive_driver_results:
+                        from funnel_manager import save_race_result
+                        _sh_date = _speedhive_event.get('startDate', '') if _speedhive_event else ''
+                        _saved_count = 0
+                        for r in results:
+                            _rname = r.get('original_name', '')
+                            if _rname in _speedhive_driver_results and r.get('match'):
+                                _driver = r['match']
+                                _driver.notes = save_race_result(
+                                    _driver, event_name, _active_champ,
+                                    _speedhive_driver_results[_rname], _sh_date
+                                )
+                                dashboard.add_new_driver(
+                                    _driver.email, _driver.first_name, _driver.last_name,
+                                    _driver.facebook_url or "", ig_url=_driver.instagram_url or "",
+                                    championship=_driver.championship or "", notes=_driver.notes
+                                )
+                                _saved_count += 1
+                        if _saved_count:
+                            st.toast(f"📊 Saved race results for {_saved_count} drivers")
+                        # Store in session for contact card display
+                        st.session_state['_speedhive_driver_results'] = _speedhive_driver_results
+
+                    # PERSISTENCE: Save driver names as JSON (survives refresh better than pickle)
+                    import json as _json_persist
+                    try:
+                        _persist_data = {
+                            'names': clean_names,
+                            'event': event_name,
+                            'championship': _active_champ,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        with open(os.path.join(DATA_DIR, "last_race_names.json"), "w") as f:
+                            _json_persist.dump(_persist_data, f)
+                    except Exception as e:
+                        print(f"Failed to cache analysis names: {e}")
+    
+    with col_clear:
+        if st.button("🗑️ Clear Results", help="Delete the current analysis and clear cache."):
+            st.session_state.matched_results = None
+            # Also clear cached timing sheet data
+            st.session_state.pop('uploaded_timing_df', None)
+            st.session_state.pop('uploaded_timing_names', None)
+            try:
+                for _f in ["last_race_analysis.pkl", "last_race_names.json"]:
+                    p = os.path.join(DATA_DIR, _f)
+                    if os.path.exists(p): os.remove(p)
+            except: pass
+            st.rerun()
+
+    # 3. Processed Results
+    # AUTO-RESTORE: If no results in session, try to restore from saved names
+    if 'matched_results' not in st.session_state or not st.session_state.matched_results:
+        import json as _json_restore
+        _names_path = os.path.join(DATA_DIR, "last_race_names.json")
+        if os.path.exists(_names_path):
+            try:
+                _cache_age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(_names_path))).total_seconds()
+                if _cache_age < 24 * 3600:  # 24 hours
+                    with open(_names_path, "r") as f:
+                        _persist = _json_restore.load(f)
+                    _cached_names = _persist.get('names', [])
+                    _cached_champ = _persist.get('championship', '')
+                    _cached_event = _persist.get('event', event_name)
+                    if _cached_names:
+                        _restored = dashboard.process_race_results(
+                            _cached_names, event_name=_cached_event, championship=_cached_champ
+                        )
+                        st.session_state.matched_results = _restored
+            except Exception as _restore_err:
+                print(f"Failed to restore analysis: {_restore_err}")
+                
+    if 'matched_results' in st.session_state and st.session_state.matched_results:
+        st.divider()
+        results = st.session_state.matched_results
+
+        # Refresh driver objects from live database — cached copies may have stale stages
+        # SKIP on quick-action reruns (Done, Messaged etc.) — driver was just updated in memory
+        if not st.session_state.pop('_skip_driver_refresh', False):
+            for r in results:
+                if r['match_status'] == 'match_found' and r.get('match'):
+                    email = r['match'].email
+                    fresh = dashboard._find_driver(email)
+                    if fresh:
+                        r['match'] = fresh
+
+        # NOTE: Auto-reset removed — was silently resetting MESSAGED drivers
+        # back to CONTACT on every page load, causing already-contacted drivers
+        # to appear as new prospects. Drivers keep their actual stage now.
+
+        # Stages that indicate "messaged" (contacted) — defined early for sorting + icons
+        MESSAGED_STAGES = [FunnelStage.MESSAGED, FunnelStage.OUTREACH, FunnelStage.REPLIED,
+                          FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT,
+                          FunnelStage.RACE_WEEKEND, FunnelStage.RACE_REVIEW_COMPLETE,
+                          FunnelStage.SLEEP_TEST_COMPLETED, FunnelStage.MINDSET_QUIZ_COMPLETED,
+                          FunnelStage.FLOW_PROFILE_COMPLETED, FunnelStage.BLUEPRINT_STARTED,
+                          FunnelStage.DAY1_COMPLETE, FunnelStage.DAY2_COMPLETE,
+                          FunnelStage.STRATEGY_CALL_BOOKED, FunnelStage.CLIENT,
+                          FunnelStage.SALE_CLOSED, FunnelStage.FOLLOW_UP]
+
+        # BULK IMPORT ACTION
+        new_prospects_count = sum(1 for r in results if r['match_status'] == 'new_prospect')
+        if new_prospects_count > 0:
+             c_bulk1, c_bulk2 = st.columns([2, 1])
+             with c_bulk1:
+                 st.metric("Total Drivers", len(results))
+             with c_bulk2:
+                 if st.button(f"⚡ Bulk Import {new_prospects_count} New Drivers", type="primary", help="Immediately add all new names to the Pipeline as Leads"):
+                      added = 0
+                      # Use a progress bar for satisfaction
+                      progress_bar = st.progress(0)
+                      
+                      for idx, r in enumerate(results):
+                           if r['match_status'] == 'new_prospect':
+                               # Generate minimal details
+                               name = r['original_name']
+                               clean_name = "".join([c for c in name if c.isalnum() or c == ' ']).strip()
+                               slug = clean_name.lower().replace(" ", "_")
+                               email = f"no_email_{slug}"
+                               
+                               # Split name
+                               parts = clean_name.split(' ')
+                               f_name = parts[0].title()
+                               l_name = " ".join(parts[1:]).title() if len(parts) > 1 else ""
+                               
+                               # Add to Dashboard/Memory
+                               # USE GLOBAL CHAMPIONSHIP FOR BULK IMPORT AS WELL
+                               curr_champ = st.session_state.get('global_championship', '')
+                               
+                               if dashboard.add_new_driver(email, f_name, l_name, "", "", championship=curr_champ):
+                                   dashboard.update_driver_stage(email, FunnelStage.CONTACT)
+                                   # Important: Ensure outreach_date is set so they appear in filtered views
+                                   added_driver = dashboard._find_driver(email)
+                                   if added_driver:
+                                        added_driver.outreach_date = datetime.now()
+                                        # Update localized match status so UI reflects it immediately
+                                        r['match_status'] = 'match_found'
+                                        r['match'] = added_driver
+                                   added += 1
+                                   
+                           progress_bar.progress((idx + 1) / len(results))
+                           
+                      st.success(f"Successfully imported {added} drivers! They are now in the 'Leads / Contact' stage.")
+                      st.rerun()
+                      
+        else:
+             st.metric("Total Drivers", len(results))
+        
+        # All drivers stay visible — messaged ones get a ✅ and sort to the bottom
+        filtered = list(results)
+
+        # SORT: New prospects first → In Database → Messaged → Link Sent/Replied → No Socials/Not a Fit last
+        def _sort_key(item):
+            if item['match_status'] == 'new_prospect':
+                return (0, item['original_name'])  # New prospects → top
+            if item.get('match'):
+                curr = item['match'].current_stage
+                if curr == FunnelStage.NO_SOCIALS:
+                    return (4, '')  # No Socials → bottom
+                if curr == FunnelStage.NOT_A_FIT:
+                    return (5, '')  # Not a Fit → very bottom
+                if curr in [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT]:
+                    return (3, '')  # Link Sent → after messaged
+                if curr in MESSAGED_STAGES:
+                    return (2, '')  # Messaged → middle
+            return (1, '')  # In Database / Ready to message → after new
+        filtered.sort(key=_sort_key)
+
+        # Status counts for summary bar
+        messaged_count = sum(1 for r in filtered if r.get('match') and r['match'].current_stage in MESSAGED_STAGES)
+        no_socials_count = sum(1 for r in filtered if r.get('match') and r['match'].current_stage == FunnelStage.NO_SOCIALS)
+        not_a_fit_count = sum(1 for r in filtered if r.get('match') and r['match'].current_stage == FunnelStage.NOT_A_FIT)
+        link_sent_count = sum(1 for r in filtered if r.get('match') and r['match'].current_stage in [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT])
+        in_db_count = sum(1 for r in filtered if r['match_status'] == 'match_found' and r.get('match') and r['match'].current_stage not in MESSAGED_STAGES and r['match'].current_stage != FunnelStage.NO_SOCIALS and r['match'].current_stage != FunnelStage.NOT_A_FIT)
+        new_count = sum(1 for r in filtered if r['match_status'] == 'new_prospect')
+
+        st.markdown(
+            f"**{len(filtered)} drivers** &nbsp; · &nbsp; "
+            f"🆕 {new_count} New &nbsp; · &nbsp; "
+            f"🟢 {in_db_count} In Database &nbsp; · &nbsp; "
+            f"✅ {messaged_count} Messaged &nbsp; · &nbsp; "
+            f"🔗 {link_sent_count} Link Sent &nbsp; · &nbsp; "
+            f"🚫 {no_socials_count} No Socials &nbsp; · &nbsp; "
+            f"❌ {not_a_fit_count} Not a Fit"
+        )
+
+        # Initialize session state for tracking expanded cards
+        if "just_added_names" not in st.session_state:
+            st.session_state.just_added_names = set()
+
+        # ── FILTER: Hide already-contacted drivers for fast outreach ──
+        _CONTACTED_STAGES = set(MESSAGED_STAGES) | {FunnelStage.NO_SOCIALS, FunnelStage.NOT_A_FIT, FunnelStage.DOES_NOT_REPLY}
+        actionable_count = sum(1 for r in filtered if not (r.get('match') and r['match'].current_stage in _CONTACTED_STAGES))
+        done_count = len(filtered) - actionable_count
+
+        _fc1, _fc2 = st.columns([3, 1])
+        with _fc1:
+            st.markdown(
+                f'<div style="background:#064e3b;border:1px solid #10b981;border-radius:8px;padding:10px 16px;'
+                f'margin:4px 0 8px 0;font-size:16px;color:#34d399;font-weight:700;">'
+                f'📋 {actionable_count} to message &nbsp;·&nbsp; ✅ {done_count} already contacted'
+                f'</div>', unsafe_allow_html=True
+            )
+        with _fc2:
+            hide_contacted = st.toggle("Hide Contacted", value=st.session_state.get('_hide_contacted', True), key="_hide_contacted")
+
+        if hide_contacted:
+            display_list = [r for r in filtered if not (r.get('match') and r['match'].current_stage in _CONTACTED_STAGES)]
+        else:
+            display_list = filtered
+
+        # PAGINATION — only render a batch of cards per page to keep UI snappy
+        PAGE_SIZE = 20
+        total_display = len(display_list)
+        if total_display > PAGE_SIZE:
+            max_page = (total_display - 1) // PAGE_SIZE
+            _page_key = '_outreach_page'
+            if _page_key not in st.session_state:
+                st.session_state[_page_key] = 0
+            current_page = st.session_state[_page_key]
+            start_idx = current_page * PAGE_SIZE
+            end_idx = min(start_idx + PAGE_SIZE, total_display)
+            display_list = display_list[start_idx:end_idx]
+
+            # Pagination controls
+            _pc1, _pc2, _pc3 = st.columns([1, 2, 1])
+            with _pc1:
+                if current_page > 0 and st.button("⬅️ Previous", key="_page_prev"):
+                    st.session_state[_page_key] = current_page - 1
+                    st.rerun()
+            with _pc2:
+                st.markdown(f"<div style='text-align:center;color:#888;'>Page {current_page + 1} of {max_page + 1} ({total_display} drivers)</div>", unsafe_allow_html=True)
+            with _pc3:
+                if current_page < max_page and st.button("➡️ Next", key="_page_next"):
+                    st.session_state[_page_key] = current_page + 1
+                    st.rerun()
+
+        # FULL CARD VIEW
+        for i, r in enumerate(display_list):
+            # Color Code / Icon logic — clear status for every driver
+            if r['match_status'] == 'match_found':
+                if r.get('match'):
+                    curr = r['match'].current_stage
+                    if curr == FunnelStage.NO_SOCIALS:
+                        icon = "🚫"
+                        label = "NO SOCIALS"
+                    elif curr == FunnelStage.NOT_A_FIT:
+                        icon = "❌"
+                        label = "NOT A FIT"
+                    elif curr in [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT]:
+                        icon = "🔗"
+                        label = "LINK SENT"
+                    elif curr in [FunnelStage.REPLIED]:
+                        icon = "✅💬"
+                        label = "REPLIED"
+                    elif curr in MESSAGED_STAGES:
+                        icon = "✅✉️"
+                        label = "MESSAGED"
+                    else:
+                        icon = "🟢"
+                        label = "IN DATABASE"
+                else:
+                    icon = "🟢"
+                    label = "IN DATABASE"
+            else:
+                icon = "🆕"
+                label = "NEW PROSPECT"
+
+            # Keep expanded only if just added AND not yet processed
+            # Auto-close any card that's been actioned (messaged, no socials, not a fit, etc.)
+            PROCESSED_STAGES = MESSAGED_STAGES + [FunnelStage.NO_SOCIALS, FunnelStage.NOT_A_FIT, FunnelStage.DOES_NOT_REPLY]
+            is_expanded = r['original_name'] in st.session_state.just_added_names
+            if r.get('match') and r['match'].current_stage in PROCESSED_STAGES:
+                is_expanded = False
+                # Clear from just_added so it stays closed
+                st.session_state.just_added_names.discard(r['original_name'])
+
+            # Build expander title with optional date + class
+            _aka = ""
+            if r.get('match') and getattr(r['match'], 'preferred_name', None):
+                _pn = r['match'].preferred_name
+                _fn = r['match'].first_name or ''
+                if _pn.lower().strip() != _fn.lower().strip():
+                    _aka = f"  (otherwise known as {_pn})"
+            _expander_title = f"{icon} {r['original_name']}{_aka}  [{label}]"
+            # Add messaged/outreach date if driver is at a contacted stage
+            if r.get('match') and r['match'].current_stage in MESSAGED_STAGES:
+                _msg_date = r['match'].outreach_date or r['match'].last_activity
+                if _msg_date:
+                    _expander_title += f"  📅 {_msg_date.strftime('%d %b')}"
+            # Add race class from Speedhive data
+            _sh_store_hdr = st.session_state.get('_speedhive_driver_results') or _speedhive_driver_results
+            if _sh_store_hdr and r['original_name'] in _sh_store_hdr:
+                _driver_classes = set()
+                for _sd in _sh_store_hdr[r['original_name']]:
+                    _rc = _sd.get('result_class', '').strip()
+                    if _rc:
+                        _driver_classes.add(_rc)
+                if _driver_classes:
+                    _expander_title += f"  🏷️ {', '.join(sorted(_driver_classes))}"
+
+            with st.expander(_expander_title, expanded=is_expanded):
+
+                # --- UNIFIED CARD: Same layout for ALL drivers ---
+                is_existing = r['match_status'] == 'match_found' and r.get('match')
+                driver_match = r.get('match') if is_existing else None
+
+                # Get driver details (from DB if existing, or generate from name if new)
+                if is_existing:
+                    r_first = driver_match.first_name or r['original_name'].split(' ')[0]
+                    r_last = driver_match.last_name or (' '.join(r['original_name'].split(' ')[1:]) if ' ' in r['original_name'] else '')
+                    r_email_display = driver_match.email if not driver_match.email.startswith("no_email_") else ""
+                    r_fb = driver_match.facebook_url or ""
+                    r_ig = driver_match.instagram_url or ""
+                    r_champ = driver_match.championship or ""
+                    r_notes = driver_match.notes or ""
+                    r_full_name = driver_match.full_name
+                else:
+                    parts = r['original_name'].split(' ')
+                    r_first = parts[0].title()
+                    r_last = parts[1].title() if len(parts) > 1 else ""
+                    r_email_display = ""
+                    r_fb = ""
+                    r_ig = ""
+                    r_champ = st.session_state.get('global_championship', '')
+                    r_notes = ""
+                    r_full_name = r['original_name']
+
+                # Status banner
+                if is_existing:
+                    curr = driver_match.current_stage
+                    if curr == FunnelStage.NO_SOCIALS:
+                        st.warning(f"🚫 {r_full_name} — No Socials Found")
+                        if st.button("Re-open Search", key=f"reopen_{i}_{r['original_name']}"):
+                            dashboard.update_driver_stage(driver_match.email, FunnelStage.CONTACT)
+                            st.rerun()
+                    elif curr == FunnelStage.NOT_A_FIT:
+                        st.error(f"❌ {r_full_name} — Not a Fit")
+                else:
+                    st.info(f"🆕 {r['original_name']} — New Prospect (not in database)")
+
+                # ============ SPEEDHIVE RACE DATA (proof they raced) ============
+                _sh_driver_data = None
+                _sh_store = st.session_state.get('_speedhive_driver_results') or _speedhive_driver_results
+                if _sh_store and r['original_name'] in _sh_store:
+                    _sh_driver_data = _sh_store[r['original_name']]
+                if _sh_driver_data:
+                    _sh_rows = []
+                    for _sd in _sh_driver_data:
+                        _best = _sd.get('best_lap', '')
+                        # Format millisecond times if numeric
+                        if isinstance(_best, (int, float)) and _best > 0:
+                            _m = int(_best // 60000)
+                            _s = (_best % 60000) / 1000
+                            _best = f"{_m}:{_s:06.3f}" if _m else f"{_s:.3f}s"
+                        _sh_rows.append({
+                            "Session": _sd.get('session_group', _sd.get('session_name', '')),
+                            "Type": (_sd.get('session_type', '') or '').capitalize(),
+                            "Pos": _sd.get('position', '—'),
+                            "Class Pos": _sd.get('position_in_class', '—'),
+                            "Best Lap": _best or '—',
+                            "Laps": _sd.get('laps', '—'),
+                            "Class": _sd.get('result_class', '—'),
+                            "#": _sd.get('start_number', '—'),
+                            "Status": _sd.get('status', ''),
+                        })
+                    # Show as a compact coloured banner + table
+                    _best_pos = min((s.get('position') for s in _sh_driver_data if s.get('position')), default=None)
+                    _race_count = sum(1 for s in _sh_driver_data if (s.get('session_type') or '') == 'race')
+                    _qual_count = sum(1 for s in _sh_driver_data if (s.get('session_type') or '') == 'qualify')
+                    _summary_parts = []
+                    if _best_pos: _summary_parts.append(f"Best P{_best_pos}")
+                    if _race_count: _summary_parts.append(f"{_race_count} race{'s' if _race_count != 1 else ''}")
+                    if _qual_count: _summary_parts.append(f"{_qual_count} quali")
+                    _summary_parts.append(f"#{_sh_driver_data[0].get('start_number', '?')}")
+                    st.success(f"🏁 **Speedhive verified** — {' · '.join(_summary_parts)}")
+                    with st.expander("📊 Full session data", expanded=False):
+                        st.dataframe(pd.DataFrame(_sh_rows), use_container_width=True, hide_index=True)
+                elif _sh_store and r['original_name'] not in _sh_store:
+                    # Speedhive was used but this driver wasn't in the results
+                    pass  # No banner — they simply weren't in selected sessions
+
+                # ============ PERFORMANCE SUMMARY LINE ============
+                from ui_components import _build_perf_line
+                from funnel_manager import get_results_summary as _get_rs
+                _perf_saved_summary = {}
+                if r.get('match') and r['match'].notes:
+                    _perf_saved_summary = _get_rs(r['match'].notes)
+                _perf_live_data = []
+                _sh_store_perf = st.session_state.get('_speedhive_driver_results') or _speedhive_driver_results
+                if _sh_store_perf and r['original_name'] in _sh_store_perf:
+                    _perf_live_data = _sh_store_perf[r['original_name']]
+                _perf_summary_line, _ = _build_perf_line(_perf_saved_summary, _perf_live_data)
+                if _perf_summary_line:
+                    st.info(f"🏁 {_perf_summary_line}")
+
+                # ============ CLEAN CARD LAYOUT ============
+                # Use preferred/social media name for messages (e.g. "Chris" not "Christopher")
+                f_name = (getattr(driver_match, 'display_name', None) if driver_match else None) or r_first or r['original_name'].split(' ')[0]
+
+                # --- Build performance + AI message data (once, shared) ---
+                from ui_components import generate_ai_message, REPLY_TEMPLATES, _build_perf_line, _perf_opener
+                from funnel_manager import get_results_summary
+                import re as _re_card
+
+                _perf_data = {}
+                _sh_store_msg = st.session_state.get('_speedhive_driver_results') or _speedhive_driver_results
+                if _sh_store_msg and r['original_name'] in _sh_store_msg:
+                    _perf_data['live'] = _sh_store_msg[r['original_name']]
+                if r.get('match') and r['match'].notes:
+                    _perf_data['saved'] = get_results_summary(r['match'].notes)
+
+                _thread = ""
+                _driver_for_ai = r.get('match')
+                if _driver_for_ai and _driver_for_ai.notes:
+                    _th_match = _re_card.search(r'\[THREAD\](.*?)\[/THREAD\]', _driver_for_ai.notes, _re_card.DOTALL)
+                    if _th_match:
+                        _thread = _th_match.group(1).strip()
+
+                if _driver_for_ai:
+                    _ai_msg, _ai_type, _ai_explain = generate_ai_message(
+                        _driver_for_ai, conversation_thread=_thread,
+                        performance_data=_perf_data, event_name=event_name
+                    )
+                else:
+                    _, _pd = _build_perf_line(_perf_data.get('saved', {}), _perf_data.get('live', []))
+                    _ai_msg = _perf_opener(_pd, f_name, event_name)
+                    _ai_type = "Cold outreach"
+                    _ai_explain = "New driver"
+
+                # Store AI message for Chrome extension sync
+                # Replace driver's first name with {name} placeholder so the
+                # extension can substitute the correct name at click time
+                _ext_ai = _ai_msg.replace(f_name, '{name}', 1) if f_name and f_name in _ai_msg else _ai_msg
+                st.session_state['_ext_ai_outreach_msg'] = _ext_ai
+                # Also store per-driver dict so extension can look up by name
+                if '_ext_ai_messages' not in st.session_state:
+                    st.session_state['_ext_ai_messages'] = {}
+                st.session_state['_ext_ai_messages'][r['original_name']] = _ext_ai
+
+                # --- TWO COLUMNS: Thread + Message | Social + Actions ---
+                rc_left, rc_right = st.columns([3, 2])
+
+                with rc_left:
+                    # CONVERSATION THREAD (compact, scrollable)
+                    if _thread:
+                        with st.container(height=180):
+                            for _tl in _thread.split('\n'):
+                                _tl = _tl.strip()
+                                if not _tl:
+                                    continue
+                                if _tl.startswith('You:') or _tl.startswith('  You:'):
+                                    st.markdown(f"<div style='background:#1877F2;color:white;padding:4px 8px;border-radius:10px;margin:2px 0 2px 30px;font-size:0.82em;'>{_tl.split(':',1)[1].strip()}</div>", unsafe_allow_html=True)
+                                else:
+                                    _msg_text = _tl.split(':', 1)[1].strip() if ':' in _tl and len(_tl.split(':')[0]) < 25 else _tl
+                                    st.markdown(f"<div style='background:#333;color:#eee;padding:4px 8px;border-radius:10px;margin:2px 30px 2px 0;font-size:0.82em;'>{_msg_text}</div>", unsafe_allow_html=True)
+
+                    # AI MESSAGE — ready to copy
+                    st.caption(f"🤖 {_ai_type}")
+                    evt_key = event_name.replace(" ", "_").lower() if event_name else "no_event"
+                    st.code(_ai_msg, language=None)
+
+                    # Template picker (collapsed — only if they want something different)
+                    with st.expander("📋 More templates", expanded=False):
+                        templates = {f"🤖 {_ai_type}": _ai_msg, "Blank": f"Hey {f_name}, "}
+                        for k, v_raw in REPLY_TEMPLATES.items():
+                            try: templates[k] = v_raw.replace("{name}", f_name)
+                            except: templates[k] = v_raw
+                        sel = st.selectbox("Template", list(templates.keys()), key=f"tpl_{i}_{r['original_name']}", label_visibility="collapsed")
+                        if sel != f"🤖 {_ai_type}":
+                            st.code(templates[sel], language=None)
+
+                with rc_right:
+                    # SOCIAL LINKS — one button opens all 4 search tabs for speed
+                    from urllib.parse import quote_plus
+                    driver_name_q = quote_plus(r['original_name'])
+                    _racing_q = quote_plus(r['original_name'] + ' racing')
+                    _ag_hash = quote_plus(r['original_name'])
+
+                    # Build URLs for all 4 searches
+                    _fb_name_url = f"https://www.facebook.com/search/people/?q={driver_name_q}#ag_driver={_ag_hash}"
+                    _fb_race_url = f"https://www.google.com/search?q=%22{driver_name_q}%22+facebook"
+                    _ig_name_url = f"https://www.google.com/search?q={driver_name_q}+instagram"
+                    _ig_race_url = f"https://www.google.com/search?q={_racing_q}+instagram"
+
+                    # If they already have direct profile links, show those too
+                    if r_fb:
+                        _fb_direct = r_fb if r_fb.startswith("http") else f"https://www.facebook.com/{r_fb}"
+                        _fb_direct_with_hash = f"{_fb_direct}#ag_driver={_ag_hash}"
+                        st.markdown(f'<a href="{_fb_direct_with_hash}" target="_blank" style="text-decoration:none;display:block;margin-bottom:4px;">'
+                            f'<div style="background:#4CAF50;color:white;padding:6px;border-radius:6px;text-align:center;font-weight:bold;font-size:0.82em;">'
+                            f'👤 Facebook Profile</div></a>', unsafe_allow_html=True)
+                    if r_ig:
+                        _ig_direct = r_ig if r_ig.startswith("http") else f"https://www.instagram.com/{r_ig}"
+                        _ig_direct_with_hash = f"{_ig_direct}#ag_driver={_ag_hash}"
+                        st.markdown(f'<a href="{_ig_direct_with_hash}" target="_blank" style="text-decoration:none;display:block;margin-bottom:4px;">'
+                            f'<div style="background:#E1306C;color:white;padding:6px;border-radius:6px;text-align:center;font-weight:bold;font-size:0.82em;">'
+                            f'📸 Instagram Profile</div></a>', unsafe_allow_html=True)
+
+                    # --- ONE BUTTON to open all 4 searches at once ---
+                    # Uses components.html() which runs JS in its own iframe
+                    # (st.markdown strips <script> tags, so we can't use it)
+                    import streamlit.components.v1 as components
+                    _open4_html = f'''
+                    <style>
+                        body {{ margin: 0; padding: 0; background: transparent; }}
+                        .open4-btn {{
+                            display: block;
+                            width: 100%;
+                            padding: 12px 8px;
+                            background: linear-gradient(135deg, #1877F2, #E1306C);
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-size: 15px;
+                            font-weight: bold;
+                            cursor: pointer;
+                            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                            transition: opacity 0.2s;
+                        }}
+                        .open4-btn:hover {{ opacity: 0.85; }}
+                        .open4-btn:active {{ transform: scale(0.98); }}
+                        .fallback {{ display: none; margin-top: 6px; text-align: center; }}
+                        .fallback a {{
+                            display: inline-block;
+                            margin: 3px;
+                            padding: 6px 12px;
+                            border-radius: 5px;
+                            color: white;
+                            text-decoration: none;
+                            font-size: 12px;
+                            font-weight: bold;
+                            font-family: sans-serif;
+                        }}
+                        .fb {{ background: #1877F2; }}
+                        .ig {{ background: #E1306C; }}
+                        .gg {{ background: #34A853; }}
+                    </style>
+                    <button class="open4-btn" onclick="openAll4()">🚀 Open All 4 Searches</button>
+                    <div class="fallback" id="fallback">
+                        <div style="font-size:11px;color:#999;margin-bottom:4px;">↓ If blocked, click individually:</div>
+                        <a href="{_fb_name_url}" target="_blank" class="fb">👤 FB Name</a>
+                        <a href="{_fb_race_url}" target="_blank" class="gg">🔍 Google FB</a>
+                        <a href="{_ig_name_url}" target="_blank" class="ig">📸 IG Name</a>
+                        <a href="{_ig_race_url}" target="_blank" class="ig">🏁 IG Race</a>
+                    </div>
+                    <script>
+                    function openAll4() {{
+                        var urls = [
+                            "{_fb_name_url}",
+                            "{_fb_race_url}",
+                            "{_ig_name_url}",
+                            "{_ig_race_url}"
+                        ];
+                        var blocked = false;
+                        for (var i = 0; i < urls.length; i++) {{
+                            var w = window.open(urls[i], "_blank");
+                            if (!w || w.closed) {{ blocked = true; }}
+                        }}
+                        if (blocked) {{
+                            document.getElementById("fallback").style.display = "block";
+                        }}
+                    }}
+                    </script>
+                    '''
+                    components.html(_open4_html, height=56)
+
+                    # Messenger link if they have FB
+                    if r_fb and not _thread:
+                        _fb_msg = r_fb if 'messenger.com' in str(r_fb) else f"https://www.messenger.com/t/{str(r_fb).rstrip('/').split('/')[-1]}"
+                        _fb_msg_with_hash = f"{_fb_msg}#ag_driver={_ag_hash}"
+                        st.markdown(f"[📱 Open Messenger]({_fb_msg_with_hash})")
+
+                # ============ ACTION BUTTONS — single clean row ============
+                if is_existing:
+                    _has_social = bool(driver_match.facebook_url or driver_match.instagram_url)
+                    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+                    if c1.button("✅ Done", key=f"q_done_{i}_{r['original_name']}", use_container_width=True, type="primary"):
+                        # Extension already saved to Airtable — just update local state
+                        if driver_match.current_stage == FunnelStage.CONTACT:
+                            driver_match.current_stage = FunnelStage.MESSAGED
+                        if not driver_match.outreach_date:
+                            driver_match.outreach_date = datetime.now()
+                        driver_match.last_activity = datetime.now()
+                        st.session_state.just_added_names.discard(r['original_name'])
+                        st.session_state['_skip_driver_refresh'] = True  # Fast rerun
+                        st.toast(f"✅ {r_first} done")
+                        st.rerun()
+                    if c2.button("🚀 Messaged", key=f"q_msg_{i}_{r['original_name']}", use_container_width=True, disabled=not _has_social):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.MESSAGED)
+                        driver_match.outreach_date = datetime.now()
+                        driver_match.last_activity = datetime.now()
+                        dashboard.add_new_driver(
+                            driver_match.email, driver_match.first_name, driver_match.last_name,
+                            driver_match.facebook_url or "", ig_url=driver_match.instagram_url or "",
+                            championship=driver_match.championship or "", notes=driver_match.notes
+                        )
+                        _fu = driver_match.follow_up_date
+                        st.toast(f"✅ {r_first} messaged · Follow-up {_fu.strftime('%a %d %b') if _fu else 'auto-set'}")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if c3.button("↩️ Replied", key=f"q_rep_{i}_{r['original_name']}", use_container_width=True):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.REPLIED)
+                        st.toast(f"↩️ {r_first} replied")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if c4.button("🔗 Link Sent", key=f"q_lnk_{i}_{r['original_name']}", use_container_width=True):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.LINK_SENT)
+                        st.toast(f"🔗 Link sent to {r_first}")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if c5.button("🔇 No Reply", key=f"dq_dnr_{i}_{r['original_name']}", use_container_width=True):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.DOES_NOT_REPLY)
+                        st.toast(f"🔇 {r_first} — does not reply")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if c6.button("🚫 No Socials", key=f"dq_ns_{i}_{r['original_name']}", use_container_width=True):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.NO_SOCIALS)
+                        st.toast(f"🚫 {r_first}")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if c7.button("❌ Not A Fit", key=f"dq_naf_{i}_{r['original_name']}", use_container_width=True):
+                        dashboard.update_driver_stage(driver_match.email, FunnelStage.NOT_A_FIT)
+                        st.toast(f"❌ {r_first}")
+                        st.session_state['_skip_driver_refresh'] = True
+                        st.rerun()
+                    if not _has_social:
+                        st.caption("⚠️ Add a social URL to enable Messaged")
+                else:
+                    # Helper to create driver and set stage for new prospects
+                    def _quick_save_new(stage, note_text, toast_msg):
+                        nf_first = r['original_name'].split(' ')[0]
+                        nf_last = r['original_name'].split(' ')[1] if ' ' in r['original_name'] else ""
+                        slug = r['original_name'].lower().strip().replace(' ', '_')
+                        slug = "".join([c for c in slug if c.isalnum() or c == '_'])
+                        final_email = f"no_email_{slug}"
+                        # Set stage in memory BEFORE add_new_driver so the Airtable
+                        # sync includes the stage in the same API call (1 round trip, not 2)
+                        dashboard.add_new_driver(final_email, nf_first, nf_last, "", "", "",
+                            notes=note_text)
+                        # update_driver_stage sets stage + dates + Airtable sync
+                        dashboard.update_driver_stage(final_email, stage)
+                        nf_driver = dashboard._find_driver(final_email)
+                        if nf_driver:
+                            r['match_status'] = 'match_found'
+                            r['match'] = nf_driver
+                        st.session_state['_skip_driver_refresh'] = True  # Fast rerun
+                        st.toast(toast_msg)
+                        st.rerun()
+
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("✅ Done", key=f"nf_done_{i}_{r['original_name']}", use_container_width=True, type="primary"):
+                        # Fast path: check if driver exists by slug email (no full scan)
+                        _slug = r['original_name'].lower().strip().replace(' ', '_')
+                        _slug = "".join([c for c in _slug if c.isalnum() or c == '_'])
+                        _existing = (dashboard._find_driver(f"no_email_{_slug}")
+                                     or dashboard._find_driver(r['original_name'].lower().strip()))
+                        if _existing and hasattr(_existing, 'email'):
+                            if _existing.current_stage == FunnelStage.CONTACT:
+                                _existing.current_stage = FunnelStage.MESSAGED
+                            if not _existing.outreach_date:
+                                _existing.outreach_date = datetime.now()
+                            _existing.last_activity = datetime.now()
+                            r['match_status'] = 'match_found'
+                            r['match'] = _existing
+                            st.session_state.just_added_names.discard(r['original_name'])
+                            st.session_state['_skip_driver_refresh'] = True
+                            st.toast(f"✅ {r['original_name']} done")
+                            st.rerun()
+                        else:
+                            _quick_save_new(FunnelStage.MESSAGED, "Messaged via extension.", f"✅ {r['original_name']} done")
+                    if c2.button("🚫 Not Found", key=f"nf_{i}_{r['original_name']}", use_container_width=True):
+                        _quick_save_new(FunnelStage.NO_SOCIALS, "No social media found during Race Outreach.", f"🚫 {r['original_name']}")
+                    if c3.button("❌ Not A Fit", key=f"nf_naf_{i}_{r['original_name']}", use_container_width=True):
+                        _quick_save_new(FunnelStage.NOT_A_FIT, "Marked Not A Fit during Race Outreach.", f"❌ {r['original_name']}")
+                    c4, c5, c6 = st.columns(3)
+                    if c4.button("🔇 No Reply", key=f"nf_dnr_{i}_{r['original_name']}", use_container_width=True):
+                        _quick_save_new(FunnelStage.DOES_NOT_REPLY, "Does not reply to messages.", f"🔇 {r['original_name']}")
+                    if c5.button("🏆 Client", key=f"nf_cl_{i}_{r['original_name']}", use_container_width=True):
+                        _quick_save_new(FunnelStage.CLIENT, "Already a client.", f"🏆 {r['original_name']}")
+                    if c6.button("📚 Done Blueprint", key=f"nf_bp_{i}_{r['original_name']}", use_container_width=True):
+                        _quick_save_new(FunnelStage.BLUEPRINT_STARTED, "Already completed Blueprint.", f"📚 {r['original_name']}")
+
+                # ============ EDIT FORM (collapsed — clean) ============
+                with st.expander("✏️ Edit" if is_existing else "💾 Save Contact", expanded=not is_existing):
+                    with st.form(key=f"unified_form_{i}_{r['original_name']}"):
+                        c_n1, c_n2 = st.columns(2)
+                        in_first = c_n1.text_input("First", value=r_first, key=f"uf_first_{i}_{r['original_name']}")
+                        in_last = c_n2.text_input("Last", value=r_last, key=f"uf_last_{i}_{r['original_name']}")
+                        c_f1, c_f2 = st.columns(2)
+                        in_fb = c_f1.text_input("Facebook URL", value=r_fb, key=f"uf_fb_{i}_{r['original_name']}")
+                        in_ig = c_f2.text_input("Instagram URL", value=r_ig, key=f"uf_ig_{i}_{r['original_name']}")
+
+                        champ_val = r_champ
+                        global_champ = st.session_state.get('global_championship', '')
+                        if global_champ and global_champ.lower() not in champ_val.lower():
+                            champ_val = f"{champ_val}, {global_champ}" if champ_val else global_champ
+                        in_champ = st.text_input("Championship", value=champ_val, key=f"uf_champ_{i}_{r['original_name']}")
+
+                        if st.form_submit_button("💾 Save" if is_existing else "💾 Save & Mark Messaged", type="primary"):
+                            final_email = ""
+                            if is_existing:
+                                final_email = driver_match.email
+                            else:
+                                slug = f"{in_first} {in_last}".lower().strip().replace(' ', '_')
+                                slug = "".join([c for c in slug if c.isalnum() or c == '_'])
+                                final_email = f"no_email_{slug}"
+
+                            success = dashboard.add_new_driver(final_email, in_first, in_last, in_fb, ig_url=in_ig, championship=in_champ, notes=r_notes)
+                            if success:
+                                if in_champ:
+                                    session_added = st.session_state.get('session_added_championships', [])
+                                    if in_champ not in session_added:
+                                        session_added.append(in_champ)
+                                        st.session_state.session_added_championships = session_added
+                                    try:
+                                        _s = load_settings_store()
+                                        if _s and _s.is_available:
+                                            _s.set('championships', sorted(list(set(session_added))))
+                                    except: pass
+
+                                if not is_existing and (in_fb.strip() or in_ig.strip()):
+                                    dashboard.update_driver_stage(final_email, FunnelStage.MESSAGED)
+
+                                _saved = dashboard._find_driver(final_email)
+                                if _saved:
+                                    _saved.outreach_date = datetime.now()
+                                    _saved.last_activity = datetime.now()
+                                    r['match_status'] = 'match_found'
+                                    r['match'] = _saved
+                                    pass  # Results will be re-derived from saved names on refresh
+
+                                st.session_state.just_added_names.add(r['original_name'])
+                                st.toast(f"✅ {in_first} saved!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to save.")
+
+    # Sync circuit/champ/AI message to Chrome extension via hidden div
+    # (called after card loop so session_state has the latest AI message)
+    _render_ext_sync_div()
+
+
+
+
+# ==============================================================================
+# ADMIN VIEW
+# ==============================================================================
+def render_admin(dashboard, drivers):
+    st.subheader("⚙️ Admin")
+
+    # MANUAL ADD DRIVER
+    with st.expander("👤 Manually Add New Driver", expanded=False):
+        st.write("Add a single driver who didn't come from an automated source.")
+        
+        with st.form("manual_add_driver_form"):
+            c1, c2 = st.columns(2)
+            new_first = c1.text_input("First Name")
+            new_last = c2.text_input("Last Name")
+            new_email = st.text_input("Email")
+            new_champ = st.text_input("Championship (Optional)")
+            new_fb = st.text_input("Facebook URL (Optional)")
+            new_ig = st.text_input("Instagram URL (Optional)")
+            new_notes = st.text_area("Initial Notes (Optional)")
+            
+            if st.form_submit_button("💾 Save to Database"):
+                if new_first:
+                    # Handle missing email
+                    final_email = new_email.strip()
+                    if not final_email:
+                        slug = f"{new_first} {new_last}".lower().strip().replace(' ', '_')
+                        slug = "".join([c for c in slug if c.isalnum() or c == '_'])
+                        final_email = f"no_email_{slug}"
+                    
+                    success = dashboard.add_new_driver(
+                        final_email, 
+                        new_first.strip(), 
+                        new_last.strip(), 
+                        fb_url=new_fb.strip(), 
+                        ig_url=new_ig.strip(),
+                        championship=new_champ.strip(),
+                        notes=new_notes.strip()
+                    )
+                    
+                    if success:
+                        st.toast(f"✅ Added {new_first} {new_last} to database!", icon="🎉")
+                        dashboard.update_driver_stage(final_email, FunnelStage.CONTACT)
+                        st.rerun()
+                    else:
+                        st.error("Failed to add driver. Name/Email might already exist.")
+                else:
+                    st.warning("First Name is required.")
+
+    # PLATFORM INTEGRATIONS (Airtable)
+    with st.expander("🔌 Airtable Sync", expanded=False):
+        st.caption("Push all local data updates to Airtable Master Record.")
+        if st.button("🔄 Sync Database to Airtable", use_container_width=True):
+             with st.spinner("Syncing Database to Airtable..."):
+                 count = dashboard.data_loader.sync_database_to_airtable()
+                 if count > 0:
+                     st.success(f"✅ Successfully synced {count} records to Airtable!")
+                     st.cache_resource.clear()
+                 else:
+                     st.warning("No records synced (Check Airtable connection).")
+
+    # DATA SOURCE INFO
+    with st.expander("☁️ Data Sources", expanded=False):
+        st.success("Airtable is the master record. Google Sheets feed assessment data automatically.")
+        st.write(f"Total Drivers in DB: {len(drivers)}")
+# ==============================================================================
+# MAIN LAYOUT (NAVIGATION)
+# ==============================================================================
+
+st.title("🏎️ Driver Pipeline Dashboard")
+
+# --- DEBUG: HEALTH CHECK ---
+if 'dashboard' in locals() or 'dashboard' in globals():
+    # Defensive check if dashboard loaded
+    if hasattr(dashboard.data_loader, 'load_report'):
+        rep = dashboard.data_loader.load_report
+        skipped = rep.get('skipped', 0)
+        if skipped > 10:
+            st.error(f"⚠️ **DATA LOADING ISSUE DETECTED** ⚠️\n\n{skipped} rows were SKIPPED. Only {rep.get('loaded', 0)} loaded.\nPlease check the 'Skipped Rows Breakdown' below.")
+            with st.expander("🔍 VIEW DEBUG INFO (What went wrong?)", expanded=True):
+                 st.write("**Skip Reasons:**")
+                 st.json(rep.get('reasons', {}))
+
+                 st.write("**Troubleshooting:**")
+                 st.markdown("- **Missing Identity**: App couldn't find 'Email' OR 'Full Name' in the data.")
+            st.divider()
+
+# Force Reload Button (Temporary for debugging/updates)
+if 'dashboard' in locals() or 'dashboard' in globals():
+    # Cloud Status Indicator
+    if hasattr(dashboard, 'airtable') and dashboard.airtable:
+         st.sidebar.success("☁️ Cloud Storage: Connected")
+    else:
+         st.sidebar.warning("⚠️ Airtable not connected")
+
+    # Sync Health Indicator — shows failed saves and retry option
+    from sync_manager import render_sync_status
+    _at = dashboard.airtable if hasattr(dashboard, 'airtable') else None
+    render_sync_status(_at)
+
+    st.sidebar.caption("v2.10.0 (reliable sync)")
+    
+    if st.sidebar.button("🔄 Force Reload / Clear Cache"):
+        st.cache_resource.clear()
+        st.rerun()
+
+# 1. AUTO-SYNC GOOGLE SHEETS
+# --- CACHED DATA LOADER (Module Level) ---
+@st.cache_data(ttl=300) # 5 min — matches dashboard cache. Refresh App forces reload.
+def load_all_sheets_data_cached():
+     import concurrent.futures
+     
+     SHEET_CONFIG = {
+         # internal_file -> accepted secret keys (aliases supported)
+         "Strategy Call Application.csv": ["strategy_apps", "strategy_apps_sheet", "strategy_call_application"],
+         "Podium Contenders Blueprint Registered.csv": ["blueprint_regs", "blueprint_registered", "blueprint_registrations"],
+         "7 Biggest Mistakes Assessment.csv": ["seven_mistakes", "day1", "day_1", "day1_assessment", "seven_biggest_mistakes"],
+         "Day 2 Self Assessment.csv": ["day2_assessment", "day2", "day_2", "day2_self_assessment"],
+         "Flow Profile.csv": ["flow_profile", "flow_profile_assessment"],
+         "Sleep Test.csv": ["sleep_test", "sleep"],
+         "Mindset Quiz.csv": ["mindset_quiz", "mindset", "https://docs.google.com/spreadsheets/d/1JyPe2PHFdSfSZUr63YW31AOL_OMGH3Lg4_Vg_VZG6a8/edit?gid=1029796485#gid=1029796485"],
+         "export (15).csv": ["race_weekend", "race_review", "race_weekend_review", "race_reviews"],
+         "Xperiencify.csv": ["xperiencify", "xperiencify_export"]
+     }
+     
+     sheet_secrets = st.secrets.get("sheets", {})
+     loaded_data = {}
+     missing_keys = []
+     load_errors = []
+     
+     # 1. Identify valid tasks
+     tasks = {}
+     for internal_file, aliases in SHEET_CONFIG.items():
+         matched_alias = None
+         url = ""
+         for alias in aliases:
+             if alias.startswith("http"):
+                 url = alias
+                 matched_alias = alias
+                 break
+             if sheet_secrets.get(alias):
+                 matched_alias = alias
+                 url = sheet_secrets.get(alias, "")
+                 break
+
+         if url:
+             tasks[matched_alias] = (url, internal_file)
+         else:
+             missing_keys.append("/".join(aliases))
+     
+     # 2. Execute in Parallel (Increased workers for speed)
+     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+         future_to_key = {
+             executor.submit(load_google_sheet, url): (key, internal_file)
+             for key, (url, internal_file) in tasks.items()
+         }
+         
+         for future in concurrent.futures.as_completed(future_to_key):
+             key, internal_file = future_to_key[future]
+             try:
+                 # Timeout to prevent hanging forever
+                 df = future.result(timeout=15)
+                 if df is not None and not df.empty:
+                     loaded_data[internal_file] = df
+             except Exception as exc:
+                 load_errors.append(f"{key}: {exc}")
+                 print(f"Error loading {key}: {exc}")
+                 
+     return loaded_data, missing_keys, load_errors
+
+if HAS_GSHEETS:
+    try:
+        # Check for secrets
+        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+            
+            # CACHED CALL
+            try:
+                 overrides, missing_config, sheet_errors = load_all_sheets_data_cached()
+                 
+
+            except Exception as e:
+                st.error(f"GSheets Cache Error: {e}")
+                overrides = {}
+                sheet_errors = [str(e)]
+        else:
+            overrides = {}
+            sheet_errors = ["No 'gsheets' connection in secrets.toml"]
+    except Exception as e:
+        overrides = {}
+        sheet_errors = [str(e)]
+else:
+    overrides = {}
+    sheet_errors = ["Missing streamlit_gsheets module"]
+
+# Load Logic
+try:
+    # Show loading spinner on cold start (when cache is empty)
+    with st.spinner("🏎️ Loading driver database..."):
+        dashboard = load_dashboard_data(overrides=overrides)
+
+    # ===========================================================================
+    # FAST PATH — must run BEFORE sidebar/settings/navigation (700+ lines)
+    # ===========================================================================
+    # 1. Stage just updated → close dialog instantly, skip everything
+    if st.session_state.pop('_stage_just_updated', False):
+        if '_stage_toast' in st.session_state:
+            st.toast(st.session_state.pop('_stage_toast'), icon="✅")
+        else:
+            st.toast("✅ Updated")
+        # NOTE: Do NOT call st.stop() here — it prevents the page from rendering
+        # after the dialog closes, leaving the user on a blank screen.
+
+    # 2. Contact card dialog open → render dialog, skip heavy page render
+    #    (handled later at render section, but we flag it early)
+
+    # ===========================================================================
+    # CHROME EXTENSION SAVE HANDLERS — run FIRST, before any UI rendering.
+    # The extension injects query params (?save_outreach=, ?set_stage=, etc.)
+    # into the Streamlit URL. These must be processed immediately so saves don't
+    # time out waiting for the full UI to render (which takes 10-30 seconds).
+    # After processing, st.stop() prevents unnecessary UI rendering for save-only
+    # reruns — the tab is typically a background tab opened by the extension.
+    # ===========================================================================
+    _is_ext_save = any(p in st.query_params for p in ['save_outreach', 'set_stage', 'save_messages', 'save_url'])
+
+    if _is_ext_save:
+        # --- STAGE ORDER for advance-only logic ---
+        STAGE_ORDER = [
+            FunnelStage.CONTACT, FunnelStage.MESSAGED, FunnelStage.REPLIED,
+            FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT,
+            FunnelStage.RACE_WEEKEND, FunnelStage.RACE_REVIEW_COMPLETE,
+            FunnelStage.SLEEP_TEST_COMPLETED, FunnelStage.MINDSET_QUIZ_COMPLETED,
+            FunnelStage.FLOW_PROFILE_COMPLETED, FunnelStage.REGISTERED,
+            FunnelStage.DAY1_COMPLETE, FunnelStage.DAY2_COMPLETE,
+            FunnelStage.STRATEGY_CALL_BOOKED, FunnelStage.CLIENT,
+        ]
+        def _stage_index(stage):
+            try:
+                return STAGE_ORDER.index(stage)
+            except ValueError:
+                return -1
+
+        # --- ?set_stage= AUTO STAGE UPDATE ---
+        if "set_stage" in st.query_params and "driver" in st.query_params:
+            _stage_key = st.query_params["set_stage"]
+            _driver_q = st.query_params["driver"]
+            _create_driver = st.query_params.get("create_driver", "") == "true"
+            _social_url = st.query_params.get("social_url", "")
+
+            _new_stage = None
+            for s in FunnelStage:
+                if s.name == _stage_key or s.value == _stage_key:
+                    _new_stage = s
+                    break
+
+            if _new_stage:
+                result, match_type = find_driver_by_identifier(dashboard, _driver_q)
+                _driver_obj = result[0][0] if match_type == 'multiple' else result
+
+                if (not _driver_obj or not hasattr(_driver_obj, 'email')) and _create_driver:
+                    _clean_name = unquote_plus(_driver_q).strip()
+                    _name_parts = _clean_name.split(' ', 1)
+                    _first = _name_parts[0]
+                    _last = _name_parts[1] if len(_name_parts) > 1 else ''
+                    _slug = _clean_name.lower().replace(' ', '_')
+                    _slug = "".join([c for c in _slug if c.isalnum() or c == '_'])
+                    _synth_email = f"no_email_{_slug}"
+                    _driver_obj = dashboard.data_loader._get_or_create_driver(_synth_email, _first, _last)
+                    _driver_obj.current_stage = FunnelStage.CONTACT
+                    _driver_obj.outreach_date = datetime.now()
+                    _driver_obj.last_activity = datetime.now()
+                    if _social_url:
+                        if 'instagram.com' in _social_url:
+                            _driver_obj.instagram_url = _social_url
+                        elif 'facebook.com' in _social_url or 'messenger.com' in _social_url:
+                            _driver_obj.facebook_url = _social_url
+                    print(f"[AG SAVE] Created driver: {_driver_obj.full_name}")
+
+                if _driver_obj and hasattr(_driver_obj, 'email'):
+                    if _social_url:
+                        _url_changed = False
+                        if 'instagram.com' in _social_url:
+                            _driver_obj.instagram_url = _social_url
+                            _url_changed = True
+                        elif 'facebook.com' in _social_url or 'messenger.com' in _social_url:
+                            _driver_obj.facebook_url = _social_url
+                            _url_changed = True
+                        if _url_changed:
+                            print(f"[AG SAVE] 📎 URL updated for {_driver_obj.full_name}: {_social_url[:60]}")
+                            dashboard.add_new_driver(
+                                _driver_obj.email, _driver_obj.first_name, _driver_obj.last_name,
+                                _driver_obj.facebook_url or "", ig_url=_driver_obj.instagram_url or "",
+                                championship=_driver_obj.championship or "", notes=_driver_obj.notes or ""
+                            )
+                    _circuit = st.query_params.get("circuit", "")
+                    if _circuit and not _driver_obj.championship:
+                        _driver_obj.championship = _circuit
+                        dashboard.add_new_driver(
+                            _driver_obj.email, _driver_obj.first_name, _driver_obj.last_name,
+                            _driver_obj.facebook_url or "", ig_url=_driver_obj.instagram_url or "",
+                            championship=_circuit, notes=_driver_obj.notes or ""
+                        )
+                    current_idx = _stage_index(_driver_obj.current_stage)
+                    new_idx = _stage_index(_new_stage)
+                    if new_idx > current_idx:
+                        dashboard.update_driver_stage(_driver_obj.email, _new_stage)
+                        print(f"[AG SAVE] ✅ {_driver_obj.full_name} → {_new_stage.value}")
+
+            for _p in ['set_stage', 'driver', 'create_driver', 'social_url', 'circuit']:
+                if _p in st.query_params:
+                    del st.query_params[_p]
+
+            # Rebuild name index so prospect list picks up this driver immediately
+            if hasattr(dashboard, 'race_manager'):
+                dashboard.race_manager.refresh_data()
+
+        # --- ?save_outreach= OUTREACH + AUTO-ADVANCE TO MESSAGED ---
+        if "save_outreach" in st.query_params and "driver" in st.query_params:
+            _driver_q = st.query_params["driver"]
+            _template_name = st.query_params.get("save_outreach", "outreach")
+            _social_url = st.query_params.get("social_url", "")
+            _platform = st.query_params.get("platform", "FB")
+            _create_driver = st.query_params.get("create_driver", "") == "true"
+            _circuit = st.query_params.get("circuit", "")
+            _championship = st.query_params.get("championship", "")
+            _raw_msgs = st.query_params.get("save_messages", "")
+            print(f"[AG SAVE] save_outreach fired — driver={_driver_q}, template={_template_name}, platform={_platform}")
+
+            result, match_type = find_driver_by_identifier(dashboard, _driver_q)
+            _driver_obj = result[0][0] if match_type == 'multiple' else result
+            print(f"[AG SAVE] Driver lookup: match_type={match_type}, found={'YES' if _driver_obj and hasattr(_driver_obj, 'email') else 'NO'}")
+
+            if (not _driver_obj or not hasattr(_driver_obj, 'email')) and _create_driver:
+                _clean_name = unquote_plus(_driver_q).strip()
+                _name_parts = _clean_name.split(' ', 1)
+                _first = _name_parts[0]
+                _last = _name_parts[1] if len(_name_parts) > 1 else ''
+                _slug = _clean_name.lower().replace(' ', '_')
+                _slug = "".join([c for c in _slug if c.isalnum() or c == '_'])
+                _synth_email = f"no_email_{_slug}"
+                _driver_obj = dashboard.data_loader._get_or_create_driver(_synth_email, _first, _last)
+                _driver_obj.current_stage = FunnelStage.CONTACT
+                _driver_obj.outreach_date = datetime.now()
+                _driver_obj.last_activity = datetime.now()
+                print(f"[AG SAVE] Created driver: {_driver_obj.full_name}")
+
+            if _driver_obj and hasattr(_driver_obj, 'email'):
+                if _social_url:
+                    if 'instagram.com' in _social_url:
+                        _driver_obj.instagram_url = _social_url
+                    elif 'facebook.com' in _social_url or 'messenger.com' in _social_url:
+                        _driver_obj.facebook_url = _social_url
+                    print(f"[AG SAVE] 📎 URL saved for {_driver_obj.full_name}: {_social_url[:60]}")
+                if _championship and not _driver_obj.championship:
+                    _driver_obj.championship = _championship
+                if _raw_msgs:
+                    import re as _re
+                    _lines = []
+                    for part in _raw_msgs.split('||'):
+                        part = part.strip()
+                        if part.startswith('Y>'):
+                            _lines.append(f"  You: {part[2:]}")
+                        elif part.startswith('T>'):
+                            _lines.append(f"  {_driver_obj.first_name or 'Them'}: {part[2:]}")
+                    if _lines:
+                        _ts = datetime.now().strftime("%d %b %H:%M")
+                        _thread_text = "\n".join(_lines)
+                        _thread_block = f"[{_ts} 📱 {_platform}] [THREAD]\n{_thread_text}\n[/THREAD]"
+                        existing = _driver_obj.notes or ""
+                        existing = _re.sub(
+                            r'\[\d{2} \w{3} \d{2}:\d{2} 📱[^\]]*\] \[THREAD\].*?\[/THREAD\]\n?',
+                            '', existing, flags=_re.DOTALL
+                        ).strip()
+                        _driver_obj.notes = f"{_thread_block}\n{existing}" if existing else _thread_block
+
+                _ts = datetime.now().strftime("%d %b %H:%M")
+                _outreach_log = f"[{_ts}] 📤 {_platform} outreach sent ({_template_name})"
+                _driver_obj.notes = f"{_driver_obj.notes}\n{_outreach_log}" if _driver_obj.notes else _outreach_log
+
+                dashboard.add_new_driver(
+                    _driver_obj.email, _driver_obj.first_name, _driver_obj.last_name,
+                    _driver_obj.facebook_url or "", ig_url=_driver_obj.instagram_url or "",
+                    championship=_driver_obj.championship or "", notes=_driver_obj.notes
+                )
+
+                print(f"[AG SAVE] {_driver_obj.full_name} current_stage={_driver_obj.current_stage}")
+                if _driver_obj.current_stage == FunnelStage.CONTACT:
+                    dashboard.update_driver_stage(_driver_obj.email, FunnelStage.MESSAGED)
+                    print(f"[AG SAVE] ✅ {_driver_obj.full_name} advanced CONTACT → MESSAGED")
+                else:
+                    print(f"[AG SAVE] ℹ️ {_driver_obj.full_name} already at {_driver_obj.current_stage}")
+            else:
+                print(f"[AG SAVE] ⚠️ Driver not found: {_driver_q}")
+
+            _params_to_clear = [p for p in ['save_outreach', 'driver', 'social_url', 'platform', 'create_driver', 'circuit', 'championship', 'save_messages', 'msg_platform'] if p in st.query_params]
+            for _p in _params_to_clear:
+                del st.query_params[_p]
+
+            # Rebuild the name index so the prospect list picks up this driver
+            # immediately (otherwise it stays as "NEW PROSPECT" until cache refresh)
+            if hasattr(dashboard, 'race_manager'):
+                dashboard.race_manager.refresh_data()
+
+        # --- ?save_messages= CONVERSATION CAPTURE (standalone, no outreach) ---
+        if "save_messages" in st.query_params and "driver" in st.query_params:
+            _driver_q = st.query_params["driver"]
+            _raw_msgs = st.query_params.get("save_messages", "")
+            _platform = st.query_params.get("msg_platform", "FB")
+            if _raw_msgs and _driver_q:
+                result, match_type = find_driver_by_identifier(dashboard, _driver_q)
+                _driver_obj = result[0][0] if match_type == 'multiple' else result
+                if _driver_obj and hasattr(_driver_obj, 'email'):
+                    _lines = []
+                    for part in _raw_msgs.split('||'):
+                        part = part.strip()
+                        if part.startswith('Y>'):
+                            _lines.append(f"  You: {part[2:]}")
+                        elif part.startswith('T>'):
+                            _lines.append(f"  {_driver_obj.first_name or 'Them'}: {part[2:]}")
+                    if _lines:
+                        _ts = datetime.now().strftime("%d %b %H:%M")
+                        _thread_text = "\n".join(_lines)
+                        _thread_block = f"[{_ts} 📱] [THREAD]\n{_thread_text}\n[/THREAD]"
+                        existing = _driver_obj.notes or ""
+                        import re as _re
+                        existing = _re.sub(
+                            r'\[\d{2} \w{3} \d{2}:\d{2} 📱\] \[THREAD\].*?\[/THREAD\]\n?',
+                            '', existing, flags=_re.DOTALL
+                        ).strip()
+                        existing = _re.sub(
+                            r'\[\d{2} \w{3} \d{2}:\d{2} 📱 (?:FB|IG)\] Captured thread:.*?(?=\[|\Z)',
+                            '', existing, flags=_re.DOTALL
+                        ).strip()
+                        _driver_obj.notes = f"{_thread_block}\n{existing}" if existing else _thread_block
+                        dashboard.add_new_driver(
+                            _driver_obj.email, _driver_obj.first_name, _driver_obj.last_name,
+                            _driver_obj.facebook_url or "", ig_url=_driver_obj.instagram_url or "",
+                            championship=_driver_obj.championship or "", notes=_driver_obj.notes
+                        )
+                        print(f"[AG SAVE] Saved {_platform} thread for {_driver_obj.full_name}")
+            for _p in ['save_messages', 'msg_platform']:
+                if _p in st.query_params:
+                    del st.query_params[_p]
+
+        # --- ?save_url= SILENT URL SAVE (no card opened) ---
+        if "save_url" in st.query_params and "driver" in st.query_params:
+            _driver_q = st.query_params["driver"]
+            _fb_url_q = st.query_params.get("fb_url", "")
+            _ig_url_q = st.query_params.get("ig_url", "")
+            print(f"[AG SAVE] save_url fired — driver={_driver_q}, fb={_fb_url_q[:60]}, ig={_ig_url_q[:60]}")
+
+            result, match_type = find_driver_by_identifier(dashboard, _driver_q)
+            _driver_obj = result[0][0] if match_type == 'multiple' else result
+
+            if _driver_obj and hasattr(_driver_obj, 'email'):
+                _url_changed = False
+                if _fb_url_q:
+                    _driver_obj.facebook_url = _fb_url_q
+                    _url_changed = True
+                if _ig_url_q:
+                    _driver_obj.instagram_url = _ig_url_q
+                    _url_changed = True
+                if _url_changed:
+                    dashboard.add_new_driver(
+                        _driver_obj.email, _driver_obj.first_name, _driver_obj.last_name,
+                        _driver_obj.facebook_url or "", ig_url=_driver_obj.instagram_url or "",
+                        championship=_driver_obj.championship or "", notes=_driver_obj.notes or ""
+                    )
+                    print(f"[AG SAVE] ✅ URL saved for {_driver_obj.full_name}")
+            else:
+                print(f"[AG SAVE] ⚠️ Driver not found for URL save: {_driver_q}")
+
+            for _p in ['save_url', 'driver', 'fb_url', 'ig_url']:
+                if _p in st.query_params:
+                    del st.query_params[_p]
+
+        # Save processed — decide whether to stop or rerun.
+        # Background tabs (opened by extension) have minimal session state.
+        # The user's main tab has navigation, dashboard state, etc.
+        # If it's the main tab, we must rerun to restore the UI.
+        # If it's a background tab, st.stop() prevents expensive UI rendering.
+        _has_active_session = any(k in st.session_state for k in [
+            'nav_selection', '_open_driver_card', 'calendar_selected_driver',
+            '_driver_link_handled', 'global_championship', '_stage_toast'
+        ])
+        if _has_active_session:
+            # Main tab — params already cleared, rerun to restore normal UI
+            st.rerun()
+        else:
+            # Background tab — give Airtable 2 seconds, then stop
+            import time as _time_mod
+            _time_mod.sleep(2)
+            st.stop()
+    # ===========================================================================
+    # END OF EARLY SAVE HANDLERS
+    # ===========================================================================
+
+    # --- DEBUG INSPECTOR (Hidden for diagnostics) ---
+    if 'dashboard' in locals() and dashboard:
+        with st.sidebar.expander("🛠️ Debug Inspector"):
+            st.write(f"In-Memory Drivers: {len(dashboard.drivers)}")
+
+            # Show Airtable loading debug info
+            if hasattr(dashboard.data_loader, 'airtable_debug'):
+                dbg = dashboard.data_loader.airtable_debug
+                st.write(f"Airtable Records: {dbg.get('total_records', 'N/A')}")
+                st.write(f"Skipped: {dbg.get('skipped_count', 0)}")
+                if dbg.get('column_names'):
+                    st.caption(f"Columns: {', '.join(dbg['column_names'][:10])}")
+                if dbg.get('skipped'):
+                    with st.expander("Skipped Records"):
+                        for s in dbg['skipped'][:5]:
+                            st.code(s, language=None)
+
+            dbg_q = st.text_input("Search Memory (Name/Email)")
+            if dbg_q:
+                hits = [r for r in dashboard.drivers.values() if dbg_q.lower() in r.full_name.lower() or dbg_q.lower() in str(r.email).lower()]
+                if hits:
+                    st.success(f"Found {len(hits)}:")
+                    for h in hits:
+                            st.write(f"**{h.full_name}**")
+                            st.caption(f"ID: `{h.email}`")
+                            st.json({
+                                "Stage": str(h.current_stage),
+                                "FB": h.facebook_url,
+                                "IG": h.instagram_url,
+                                "Source": "GSheet" if h.in_gsheet_input else "Airtable (Verified)"
+                            })
+                else:
+                    st.error("No matches in memory.")
+    drivers = dashboard.drivers
+    daily_metrics = dashboard.get_daily_metrics()  
+except Exception as e:
+    st.error(f"Error loading dashboard: {e}")
+    st.stop()
+
+# ==============================================================================
+# EARLY DIALOG CHECK — open contact card BEFORE heavy rendering
+# This prevents the 30+ second wait when opening cards from calendar/pipeline.
+# Dialogs float above the page, so they don't need the pipeline to render first.
+# Catches: calendar clicks, pipeline button clicks, search results, lead magnets
+# ==============================================================================
+# Only ONE dialog at a time — calendar takes priority if both are set
+if 'calendar_selected_driver' in st.session_state:
+    _early_driver = dashboard._find_driver(st.session_state['calendar_selected_driver'])
+    if _early_driver:
+        view_calendar_dialog(_early_driver, dashboard)
+    else:
+        del st.session_state['calendar_selected_driver']
+elif '_open_driver_card' in st.session_state:
+    _card_driver_id = st.session_state['_open_driver_card']
+    _card_driver = dashboard._find_driver(_card_driver_id)
+    if _card_driver:
+        view_unified_dialog(_card_driver, dashboard)
+    # Clean up AFTER dialog renders (dialog stays open across reruns)
+    # Only clear when the key changes (new driver) or user navigates away
+    if '_open_driver_card' in st.session_state and not _card_driver:
+        del st.session_state['_open_driver_card']
+
+# Stage toast now handled by fast path at line ~2073
+
+# ==============================================================================
+# CALENDAR VIEW
+# ==============================================================================
+
+# Stall thresholds (hours) — shared with pipeline, used to auto-generate follow-up dates
+_CAL_STALL_THRESHOLDS = {
+    FunnelStage.MESSAGED: 48,
+    FunnelStage.REPLIED: 48,
+    FunnelStage.LINK_SENT: 24,
+    FunnelStage.BLUEPRINT_LINK_SENT: 24,
+    FunnelStage.RACE_WEEKEND: 24,
+    FunnelStage.RACE_REVIEW_COMPLETE: 24,
+    FunnelStage.BLUEPRINT_STARTED: 24,
+    FunnelStage.REGISTERED: 24,
+    FunnelStage.DAY1_COMPLETE: 24,
+    FunnelStage.DAY2_COMPLETE: 24,
+    FunnelStage.STRATEGY_CALL_BOOKED: 48,
+}
+
+# Stage → date attribute mapping for calendar
+_CAL_STAGE_DATE_MAP = {
+    FunnelStage.MESSAGED: 'outreach_date',
+    FunnelStage.REPLIED: 'replied_date',
+    FunnelStage.LINK_SENT: 'link_sent_date',
+    FunnelStage.BLUEPRINT_LINK_SENT: 'link_sent_date',
+    FunnelStage.RACE_WEEKEND: 'race_weekend_review_date',
+    FunnelStage.RACE_REVIEW_COMPLETE: 'race_weekend_review_date',
+    FunnelStage.BLUEPRINT_STARTED: 'registered_date',
+    FunnelStage.REGISTERED: 'registered_date',
+    FunnelStage.DAY1_COMPLETE: 'day1_complete_date',
+    FunnelStage.DAY2_COMPLETE: 'day2_complete_date',
+    FunnelStage.STRATEGY_CALL_BOOKED: 'strategy_call_booked_date',
+}
+
+# Stages to skip on calendar (won/lost — no follow-up needed)
+_CAL_SKIP_STAGES = {
+    FunnelStage.CLIENT, FunnelStage.SALE_CLOSED,
+    FunnelStage.NOT_A_FIT, FunnelStage.DOES_NOT_REPLY, FunnelStage.NO_SOCIALS,
+}
+
+def render_calendar_view(dashboard):
+    from streamlit_calendar import calendar
+
+    st.subheader("📅 Follow-Up Calendar")
+
+    events = []
+    seen_drivers = set()  # Avoid duplicates
+
+    def _platform_badge(driver):
+        """Return emoji badge showing which platform(s) the conversation is on."""
+        has_fb = bool(driver.facebook_url and str(driver.facebook_url).strip())
+        has_ig = bool(driver.instagram_url and str(driver.instagram_url).strip())
+        if has_fb and has_ig:
+            return "📘📷"
+        if has_fb:
+            return "📘"
+        if has_ig:
+            return "📷"
+        return ""
+
+    # Colors
+    COLOR_OVERDUE = "#FF4B4B"   # Red — past due
+    COLOR_TODAY   = "#FF9800"   # Orange — due today
+    COLOR_FUTURE  = "#4CAF50"   # Green — scheduled ahead
+    COLOR_STALLED = "#E91E63"   # Pink — auto-generated from stall detection
+    COLOR_PAST_DONE = "#9E9E9E" # Grey — past follow-ups already handled
+
+    now = datetime.now()
+    now_date = now.date()
+
+    # ── 1. Drivers with explicit follow_up_date ──
+    for driver_id, driver in dashboard.drivers.items():
+        if driver.follow_up_date:
+            fu_date = driver.follow_up_date
+            if isinstance(fu_date, str):
+                try:
+                    from dateutil import parser as dp
+                    fu_date = dp.parse(fu_date)
+                except:
+                    continue
+            fu_day = fu_date.date() if hasattr(fu_date, 'date') else fu_date
+
+            if fu_day < now_date:
+                bg_color = COLOR_OVERDUE
+            elif fu_day == now_date:
+                bg_color = COLOR_TODAY
+            else:
+                bg_color = COLOR_FUTURE
+
+            stage_label = driver.current_stage.value if hasattr(driver.current_stage, 'value') else str(driver.current_stage)
+            _badge = _platform_badge(driver)
+            events.append({
+                "title": f"{_badge} 📋 {driver.full_name} [{stage_label}]".strip(),
+                "start": fu_date.isoformat() if hasattr(fu_date, 'isoformat') else str(fu_date),
+                "allDay": True,
+                "resourceId": driver_id,
+                "extendedProps": {"driver_id": driver_id},
+                "backgroundColor": bg_color,
+                "borderColor": bg_color,
+            })
+            seen_drivers.add(driver_id)
+
+    # ── 2. Auto-generate follow-ups for stalled drivers without follow_up_date ──
+    for driver_id, driver in dashboard.drivers.items():
+        if driver_id in seen_drivers:
+            continue
+        if driver.current_stage in _CAL_SKIP_STAGES:
+            continue
+        if driver.is_disqualified:
+            continue
+
+        threshold_hours = _CAL_STALL_THRESHOLDS.get(driver.current_stage)
+        if not threshold_hours:
+            continue
+
+        # Find the stage-entry date
+        date_attr = _CAL_STAGE_DATE_MAP.get(driver.current_stage, 'outreach_date')
+        stage_date = getattr(driver, date_attr, None)
+        if not stage_date:
+            stage_date = getattr(driver, 'last_activity', None)
+        if not stage_date:
+            stage_date = getattr(driver, 'outreach_date', None)
+        if not stage_date:
+            continue
+
+        if isinstance(stage_date, str):
+            try:
+                from dateutil import parser as dp
+                stage_date = dp.parse(stage_date)
+            except:
+                continue
+
+        # Calculate when follow-up is due
+        due_date = stage_date + timedelta(hours=threshold_hours)
+        hours_elapsed = (now - stage_date).total_seconds() / 3600
+
+        # Only show if past the threshold (i.e. stalled)
+        if hours_elapsed < threshold_hours:
+            continue
+
+        due_day = due_date.date()
+        days_overdue = (now_date - due_day).days
+
+        if days_overdue > 0:
+            bg_color = COLOR_STALLED
+        elif days_overdue == 0:
+            bg_color = COLOR_TODAY
+        else:
+            bg_color = COLOR_FUTURE
+
+        stage_label = driver.current_stage.value if hasattr(driver.current_stage, 'value') else str(driver.current_stage)
+
+        # Title shows urgency
+        if days_overdue >= 7:
+            urgency = "🔴"
+        elif days_overdue >= 3:
+            urgency = "🟠"
+        elif days_overdue >= 1:
+            urgency = "🟡"
+        else:
+            urgency = "⏰"
+
+        events.append({
+            "title": f"{urgency} {_platform_badge(driver)} {driver.full_name} [{stage_label}]".strip(),
+            "start": due_date.isoformat(),
+            "allDay": True,
+            "resourceId": driver_id,
+            "extendedProps": {"driver_id": driver_id},
+            "backgroundColor": bg_color,
+            "borderColor": bg_color,
+        })
+        seen_drivers.add(driver_id)
+
+    # ── 3. ASBK 2026 Race Calendar — fixed race weekend dates ──
+    COLOR_RACE = "#1565C0"   # Dark blue — race weekend
+    _asbk_rounds = [
+        {"round": "R1", "name": "Phillip Island", "state": "VIC", "start": "2026-02-20", "end": "2026-02-23"},
+        {"round": "R2", "name": "Sydney Motorsport Park", "state": "NSW", "start": "2026-03-27", "end": "2026-03-29"},
+        {"round": "R3", "name": "The Bend", "state": "SA", "start": "2026-05-01", "end": "2026-05-04"},
+        {"round": "R4", "name": "Morgan Park", "state": "QLD", "start": "2026-05-29", "end": "2026-06-01"},
+        {"round": "R5", "name": "Queensland Raceway", "state": "QLD", "start": "2026-06-26", "end": "2026-06-29"},
+    ]
+    for _rd in _asbk_rounds:
+        events.append({
+            "title": f"🏁 ASBK {_rd['round']} — {_rd['name']} ({_rd['state']})",
+            "start": _rd["start"],
+            "end": _rd["end"],       # end is exclusive in FullCalendar
+            "allDay": True,
+            "display": "background",  # renders as subtle background highlight
+            "backgroundColor": COLOR_RACE,
+            "borderColor": COLOR_RACE,
+            "textColor": "#FFFFFF",
+        })
+        # Also add a visible label event on the first day
+        events.append({
+            "title": f"🏁 ASBK {_rd['round']} — {_rd['name']}",
+            "start": _rd["start"],
+            "allDay": True,
+            "backgroundColor": COLOR_RACE,
+            "borderColor": COLOR_RACE,
+        })
+
+    # ── Summary above calendar ──
+    overdue_count = sum(1 for e in events if e['backgroundColor'] in [COLOR_OVERDUE, COLOR_STALLED])
+    today_count = sum(1 for e in events if e['backgroundColor'] == COLOR_TODAY)
+    upcoming_count = sum(1 for e in events if e['backgroundColor'] == COLOR_FUTURE)
+
+    sum_cols = st.columns(4)
+    sum_cols[0].metric("Total Follow-Ups", len(events))
+    sum_cols[1].metric("🔴 Overdue", overdue_count)
+    sum_cols[2].metric("🟠 Due Today", today_count)
+    sum_cols[3].metric("🟢 Upcoming", upcoming_count)
+
+    if overdue_count > 0:
+        st.warning(f"⚠️ **{overdue_count} overdue follow-ups** — click each to open the contact card and send a message")
+
+    # ══════════════════════════════════════════════════════════════════
+    # PIPELINE ACTION LISTS — Quick-access dropdown per funnel stage
+    # ══════════════════════════════════════════════════════════════════
+    _skip = {FunnelStage.CLIENT, FunnelStage.SALE_CLOSED, FunnelStage.NOT_A_FIT,
+             FunnelStage.DOES_NOT_REPLY, FunnelStage.NO_SOCIALS, FunnelStage.CONTACT}
+
+    # Build driver lists per stage category
+    _stage_buckets = {
+        "↩️ Replied (awaiting next step)": {
+            'stages': [FunnelStage.REPLIED],
+            'drivers': [],
+        },
+        "🔗 Review Link Sent (not started)": {
+            'stages': [FunnelStage.LINK_SENT],
+            'drivers': [],
+        },
+        "📊 Review Started (not completed)": {
+            'stages': [FunnelStage.RACE_WEEKEND],
+            'drivers': [],
+        },
+        "✅ Review Done (not started Blueprint)": {
+            'stages': [FunnelStage.RACE_REVIEW_COMPLETE],
+            'drivers': [],
+        },
+        "📚 Blueprint Link Sent (not started)": {
+            'stages': [FunnelStage.BLUEPRINT_LINK_SENT],
+            'drivers': [],
+        },
+        "📚 In Blueprint (stalled)": {
+            'stages': [FunnelStage.REGISTERED, FunnelStage.BLUEPRINT_STARTED],
+            'drivers': [],
+        },
+        "📘 Day 1 Done (not started Day 2)": {
+            'stages': [FunnelStage.DAY1_COMPLETE],
+            'drivers': [],
+        },
+        "📗 Day 2 Done (not started Day 3)": {
+            'stages': [FunnelStage.DAY2_COMPLETE],
+            'drivers': [],
+        },
+        "📞 Strategy Call Booked (not completed)": {
+            'stages': [FunnelStage.STRATEGY_CALL_BOOKED],
+            'drivers': [],
+        },
+    }
+
+    for _rid, _r in dashboard.drivers.items():
+        if _r.current_stage in _skip or _r.is_disqualified:
+            continue
+        for _bname, _bdata in _stage_buckets.items():
+            if _r.current_stage in _bdata['stages']:
+                _bdata['drivers'].append(_r)
+                break
+
+    # Sort each bucket by days in stage (longest first)
+    for _bdata in _stage_buckets.values():
+        _bdata['drivers'].sort(key=lambda x: x.days_in_current_stage, reverse=True)
+
+    st.divider()
+    st.markdown("#### 📋 Outreach Lists by Stage")
+
+    # Show each bucket as an expander with driver buttons
+    for _bname, _bdata in _stage_buckets.items():
+        _count = len(_bdata['drivers'])
+        if _count == 0:
+            continue
+
+        with st.expander(f"{_bname} ({_count})", expanded=False):
+            for _idx, _r in enumerate(_bdata['drivers']):
+                _days = _r.days_in_current_stage
+                _urgency = "🔴" if _days >= 7 else "🟠" if _days >= 3 else "🟡" if _days >= 1 else "⚪"
+                _plat = _platform_badge(_r)
+                _label = f"{_urgency} {_plat} {_r.full_name} — {_days}d".strip()
+                if _r.championship:
+                    _label += f" · {_r.championship}"
+
+                if st.button(_label, key=f"cal_list_{_r.email}_{_idx}", use_container_width=True):
+                    st.session_state['calendar_selected_driver'] = _r.email.lower().strip()
+                    st.rerun()
+
+    st.divider()
+
+    calendar_options = {
+        "headerToolbar": {
+            "left": "today prev,next",
+            "center": "title",
+            "right": "dayGridMonth,timeGridWeek,listMonth"
+        },
+        "initialView": "dayGridMonth",
+        "editable": True,
+        "firstDay": 1,
+        "eventDisplay": "block",
+        "dayMaxEvents": 5,
+        "moreLinkText": "more follow-ups",
+    }
+
+    # Render Calendar
+    state = calendar(events=events, options=calendar_options, key="calendar_widget")
+
+    # HANDLER: Drag & Drop (Event Change)
+    if state.get("eventChange"):
+        change = state["eventChange"]
+        event = change.get("event", {})
+        driver_id = event.get("extendedProps", {}).get("driver_id") or event.get("resourceId")
+        new_start_str = event.get("start")
+
+        if driver_id and new_start_str:
+            try:
+                from dateutil import parser
+                new_date = parser.parse(new_start_str)
+                dashboard.data_loader.save_driver_details(driver_id, follow_up_date=new_date)
+                st.toast(f"Moved follow-up to {new_date.strftime('%d %b')}!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to update date: {e}")
+
+    # HANDLER: Click - Open Contact Card Dialog
+    #
+    # streamlit_calendar caches its last eventClick across reruns.
+    # Three guards prevent infinite-rerun loops & ghost re-opens:
+    #   1. Dialog already open  → skip (calendar_selected_driver set)
+    #   2. Dialog just closed   → skip (_cal_dismissed flag set)
+    #   3. After setting calendar_selected_driver, call st.rerun() so the
+    #      EARLY DIALOG CHECK (line ~2745) opens it on the next pass.
+    #
+    # The _cal_dismissed flag is cleared once eventClick is no longer
+    # in the component state (user navigated/clicked elsewhere).
+    #
+    has_click = bool(state.get("eventClick"))
+
+    if has_click and 'calendar_selected_driver' not in st.session_state and not st.session_state.get('_cal_dismissed'):
+        event = state["eventClick"]["event"]
+        driver_id = (
+            event.get("extendedProps", {}).get("driver_id") or
+            event.get("extendedProps", {}).get("resourceId") or
+            event.get("resourceId")
+        )
+
+        # Fallback: parse driver name from event title  e.g. "📋 Daryl Hutt [Messaged]"
+        if not driver_id:
+            title = event.get("title", "")
+            import re
+            m = re.match(r'^[^\w]*(.+?)\s*\[', title)
+            if m:
+                driver_id = m.group(1).strip()
+
+        if driver_id:
+            driver_key = driver_id.lower().strip()
+            if dashboard._find_driver(driver_key):
+                st.session_state['calendar_selected_driver'] = driver_key
+                # Must rerun so the EARLY DIALOG CHECK at top of script opens
+                # the dialog. Without this, the page renders blank (calendar
+                # skipped because key is set, but dialog check already passed).
+                st.rerun()
+
+    # Clear dismissed flag once eventClick is gone (user navigated away)
+    if not has_click and st.session_state.get('_cal_dismissed'):
+        del st.session_state['_cal_dismissed']
+
+    # Dialog is now opened early (before heavy rendering) — see EARLY DIALOG CHECK above.
+    # No need to call view_calendar_dialog here; it's already open.
+
+
+# --- PERSISTENCE: RESTORE SESSION ---
+# Driver list persistence is now handled by JSON names file in the Outreach section.
+# It saves driver names and auto-re-analyzes on restore (lines ~1402-1425).
+if 'matched_results' not in st.session_state:
+    st.session_state.matched_results = []
+
+# --- URL QUERY PARAMS FOR TAB PERSISTENCE ---
+# Use query params to keep user on same tab after refresh
+def on_nav_change():
+    val = st.session_state.main_nav
+    if "Dashboard" in val: st.query_params["tab"] = "dashboard"
+    elif "Calendar" in val: st.query_params["tab"] = "calendar"
+    elif "Race" in val: st.query_params["tab"] = "race"
+    elif "All" in val: st.query_params["tab"] = "database"
+    elif "Admin" in val: st.query_params["tab"] = "admin"
+
+# Initialize if not set
+if "main_nav" not in st.session_state:
+    st.session_state.main_nav = "📊 Funnel Dashboard" # Default
+    
+    # Check URL
+    if "tab" in st.query_params:
+        tab_val = st.query_params["tab"]
+        if tab_val == "race": st.session_state.main_nav = "🏁 Race Outreach"
+        elif tab_val == "calendar": st.session_state.main_nav = "📅 Calendar"
+        elif tab_val == "admin": st.session_state.main_nav = "⚙️ Admin"
+
+# NAVIGATION BAR
+nav = st.radio(
+    "Navigation",
+    ["📊 Funnel Dashboard", "🏁 Race Outreach", "📅 Calendar", "⚙️ Admin"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="main_nav", # This binding ensures persistence
+    on_change=on_nav_change
+)
+
+# FAST PATH moved to right after load_dashboard_data (line ~2068)
+# to avoid 700+ lines of sidebar/settings code running first.
+
+# --- DEEP LINK: ?driver= QUERY PARAM ---
+# Chrome extension sends ?driver=Name&fb_url=...&ig_url=... to auto-open contact card
+if "driver" in st.query_params and not st.session_state.get('_driver_link_handled'):
+    _driver_q = st.query_params["driver"]
+    _fb_url_q = st.query_params.get("fb_url", "")
+    _ig_url_q = st.query_params.get("ig_url", "")
+
+    result, match_type = find_driver_by_identifier(dashboard, _driver_q)
+
+    # Auto-save captured social URL to the driver record
+    def _apply_social_url(driver_obj):
+        updated = False
+        if _fb_url_q:
+            driver_obj.facebook_url = _fb_url_q
+            updated = True
+        if _ig_url_q:
+            driver_obj.instagram_url = _ig_url_q
+            updated = True
+        if updated:
+            dashboard.add_new_driver(
+                driver_obj.email, driver_obj.first_name, driver_obj.last_name,
+                driver_obj.facebook_url or "", ig_url=driver_obj.instagram_url or "",
+                championship=driver_obj.championship or ""
+            )
+            st.toast(f"📎 Saved {'FB' if _fb_url_q else 'IG'} URL for {driver_obj.full_name}")
+
+    if match_type == 'multiple':
+        st.info(f"Multiple drivers match **{unquote_plus(_driver_q)}**. Select one:")
+        _names = [f"{r.full_name} ({int(s*100)}%)" for r, s in result[:5]]
+        _choice = st.selectbox("Select driver", _names, key="_driver_deep_select")
+        _idx = _names.index(_choice)
+        if st.button("Open Contact Card", key="_driver_deep_btn"):
+            _apply_social_url(result[_idx][0])
+            st.session_state['_driver_link_handled'] = True
+            st.session_state['_open_driver_card'] = result[_idx][0].email
+            st.rerun()
+    elif result is not None:
+        _apply_social_url(result)
+        st.session_state['_driver_link_handled'] = True
+        st.session_state['_open_driver_card'] = result.email
+        st.rerun()
+    else:
+        st.warning(f"No driver found matching: {unquote_plus(_driver_q)}")
+
+    # Clean up URL params
+    for _p in ['fb_url', 'ig_url']:
+        if _p in st.query_params:
+            del st.query_params[_p]
+
+# Render View
+# Dashboard + Calendar: skip heavy render when a dialog is open (cards are overlays)
+# Outreach + Admin: always render, clear stale dialog keys (they have their own cards)
+if nav == "📊 Funnel Dashboard":
+    if '_open_driver_card' not in st.session_state:
+        render_dashboard(dashboard, daily_metrics, drivers)
+elif nav == "🏁 Race Outreach":
+    st.session_state.pop('_open_driver_card', None)
+    st.session_state.pop('calendar_selected_driver', None)
+    render_race_outreach(dashboard)
+elif nav == "⚙️ Admin":
+    st.session_state.pop('_open_driver_card', None)
+    st.session_state.pop('calendar_selected_driver', None)
+    render_admin(dashboard, drivers)
+elif nav == "📅 Calendar":
+    st.session_state.pop('_open_driver_card', None)
+    if 'calendar_selected_driver' not in st.session_state:
+        render_calendar_view(dashboard)

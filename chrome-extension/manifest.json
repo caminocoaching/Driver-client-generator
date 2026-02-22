@@ -1,0 +1,71 @@
+{
+    "manifest_version": 3,
+    "name": "Antigravity Driver Connect",
+    "version": "1.0.0",
+    "description": "Open driver contact cards from Facebook Messenger & Instagram DMs. Also grabs social profile URLs.",
+    "permissions": [
+        "activeTab",
+        "clipboardWrite",
+        "tabs",
+        "storage",
+        "scripting",
+        "alarms"
+    ],
+    "host_permissions": [
+        "*://www.facebook.com/*",
+        "*://www.messenger.com/*",
+        "*://www.instagram.com/*",
+        "*://instagram.com/*",
+        "*://messenger.com/*",
+        "*://driver-client-generator.streamlit.app/*",
+        "*://api.airtable.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icon16.png",
+            "48": "icon48.png",
+            "128": "icon128.png"
+        }
+    },
+    "icons": {
+        "16": "icon16.png",
+        "48": "icon48.png",
+        "128": "icon128.png"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://www.facebook.com/*",
+                "*://www.messenger.com/*",
+                "*://messenger.com/*"
+            ],
+            "js": [
+                "content-facebook.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "*://www.instagram.com/*",
+                "*://instagram.com/*"
+            ],
+            "js": [
+                "content-instagram.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "*://driver-client-generator.streamlit.app/*"
+            ],
+            "js": [
+                "content-streamlit.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ]
+}

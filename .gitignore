@@ -1,0 +1,28 @@
+
+# Valid Secrets
+.streamlit/secrets.toml
+.env
+chrome-extension/airtable_config.js
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Mac
+.DS_Store
+
+# Large or System Specific
+*.mp4
+*.mov
+
+# Local caches (Airtable is source of truth)
+saved_championships.json
+health_check_report.json
+last_race_analysis.pkl
+*.pkl
+
+# One-off data files
+Instagram Messages*
+export*.csv
