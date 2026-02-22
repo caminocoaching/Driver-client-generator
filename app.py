@@ -945,7 +945,7 @@ def render_race_outreach(dashboard):
         )
 
     # 2. Input Data
-    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL (BSB)"], key="race_input_method", horizontal=True)
+    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing"], key="race_input_method", horizontal=True)
 
     raw_results_list = []
     _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
@@ -1323,7 +1323,7 @@ def render_race_outreach(dashboard):
                 elif _ct_meet_id:
                     st.warning("No sessions found for this meeting.")
 
-    elif input_method == "🇬🇧 Import from TSL (BSB)":
+    elif input_method == "🇬🇧 Import from TSL Timing":
         try:
             from tsl_timing_client import TSLTimingClient
             _tsl_import_ok = True
@@ -1332,10 +1332,19 @@ def render_race_outreach(dashboard):
             _tsl_import_ok = False
 
         if _tsl_import_ok:
+            st.caption("TSL Timing covers: **BTCC** · **British F4** · **GB3** · **British GT** · **Porsche Carrera Cup GB**")
+            # Quick-link helper for finding event pages
+            _tsl_champ_pages = {
+                "BTCC": "https://www.tsl-timing.com/btcc",
+                "British F4": "https://www.tsl-timing.com/f4",
+                "GB3": "https://www.tsl-timing.com/gb3",
+                "British GT": "https://www.tsl-timing.com/bgt",
+                "Porsche Cup GB": "https://www.tsl-timing.com/btcc",
+            }
             _tsl_url = st.text_input(
                 "TSL Timing Event URL or ID",
-                placeholder="https://www.tsl-timing.com/event/251804",
-                help="Paste a TSL Timing event URL (used by BSB, BTCC, British GT, etc.)",
+                placeholder="https://www.tsl-timing.com/event/261801",
+                help="Browse events at tsl-timing.com → click an event → copy the URL. Covers BTCC, F4, GB3, British GT, Porsche Cup GB.",
                 key="tsl_url_input"
             )
 
@@ -1434,6 +1443,25 @@ def render_race_outreach(dashboard):
                     st.warning("No sessions found for this event.")
 
     else: # Paste Text
+        st.caption("Paste driver names from any timing sheet — one name per line.")
+        with st.expander("📋 Where to find results for each championship", expanded=False):
+            st.markdown("""
+| Championship | Results Website |
+|---|---|
+| **BTCC** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
+| **British F4** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
+| **GB3** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
+| **British GT** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
+| **Porsche Cup GB** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
+| **UAE F4** | [formulamideast.com](https://formulamideast.com) or [fg91motorsport.com](https://fg91motorsport.com) |
+| **Porsche Cup NA** | [porschecarreracup.us](https://porschecarreracup.us) or [imsa.com](https://imsa.com/results) |
+| **Porsche Cup AU** | [natsoft.com.au](https://www.natsoft.com.au/roadsport) or [carreracup.com.au](https://carreracup.com.au) |
+| **Porsche Cup NZ** | [motorsport.org.nz](https://motorsport.org.nz) or [porsche.org.nz](https://porsche.org.nz) |
+| **Porsche Sprint NA** | [porschesprint.com](https://porschesprint.com) or [imsa.com](https://imsa.com/results) |
+| **DTM** | [dtm.com/results](https://www.dtm.com/results) or [adac-motorsport.de](https://www.adac-motorsport.de) |
+
+💡 **Tip:** Download or view the classification/results PDF, copy all driver names, and paste below.
+""")
         text_input = st.text_area("Driver List (Name per line)", height=150)
         if text_input:
             raw_results_list = text_input.split('\n')
