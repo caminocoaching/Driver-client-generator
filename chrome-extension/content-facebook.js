@@ -6,7 +6,7 @@
   'use strict';
 
   const APP_URL = 'https://driver-client-generator.streamlit.app';
-  const BUTTON_ID = 'antigravity-driver-btn';
+  const BUTTON_ID = 'antigravity-rider-btn';
   const PANEL_ID = 'antigravity-driver-panel';
 
   // Robust message sender — retries once if service worker was asleep
@@ -45,30 +45,41 @@
   }
   let currentName = null;
   let pipelineDriverName = null;  // Real name from pipeline app (via #ag_driver= hash or chrome.storage)
+  let _nameSetByApp = false;     // True if pipelineDriverName was set by the app (not DB lookup)
   let panelOpen = false;
   let observer = null;
   let autoSavedUrl = null;  // Track which URL we already auto-saved
+  let dbLookupDone = false;  // Wait for DB lookup before auto-saving (avoids duplicate records)
 
   // Check URL hash for driver name passed from pipeline app search buttons
-  function checkHashForDriverName() {
+  function checkHashForRiderName() {
     const hash = window.location.hash;
-    if (hash && hash.includes('ag_driver=')) {
-      const name = decodeURIComponent(hash.split('ag_driver=')[1].replace(/\+/g, ' '));
+    if (hash && hash.includes('ag_rider=')) {
+      const name = decodeURIComponent(hash.split('ag_rider=')[1].replace(/\+/g, ' '));
       if (name && name.length > 1) {
         pipelineDriverName = name;
-        chrome.storage.local.set({ agd_current_driver: name });
+        _nameSetByApp = true;
+        chrome.storage.local.set({ ag_current_driver: name });
         // Clean the hash so it doesn't persist on navigation
         history.replaceState(null, '', window.location.href.split('#')[0]);
       }
     }
   }
-  checkHashForDriverName();
+  checkHashForRiderName();
 
-  // NOTE: We intentionally do NOT load agd_current_driver from chrome.storage
+  // NOTE: We intentionally do NOT load ag_current_driver from chrome.storage
   // on init. The hash (#ag_driver=) is the only reliable source for pipeline
   // driver name. Loading stale storage data caused wrong names when navigating
   // between profiles. The page-based name detection (extractConversationName)
   // handles cases where no hash is present.
+
+  // Listen for driver name changes from the Streamlit app
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.ag_current_driver && changes.ag_current_driver.newValue) {
+      pipelineDriverName = changes.ag_current_driver.newValue;
+      _nameSetByApp = true;
+    }
+  });
 
   // ── Reply Templates (synced from ui_components.py) ──────────────────────
   const REPLY_TEMPLATES = {
@@ -83,24 +94,24 @@
     "Tough Weekend (Reply)": `Thanks for the reply {name}, it Sounds like you had a tough weekend.\n\nNot sure if you know, I'm a Flow Performance Coach. A bit different from the usual driver-coach.\n\nI work with drivers in many championships on the mental side of racing, helping them access the Flow State where performance becomes automatic, consistent, and confident under pressure.\n\nI've built a free post-race assessment tool that shows exactly where your gains are hiding and how to unlock them in time for the next round.\n\nWant me to send it over?`,
 
     // --- SEND LINKS ---
-    "Send Link (Yes)": `Superb, {name} Here is the link to The Post-Race Weekend Performance Score\nhttps://improve-driver.scoreapp.com\n\nThis short review zeroes in on where you're losing lap time, where any gaps are showing up and how to fill them 🚀\n\nAt the bottom of the results page is some free training on how to fill those gaps 👍🏻`,
+    "Send Link (Yes)": `Superb, {name} Here is the link to The Post-Race Weekend Performance Score\nhttps://improve-rider.scoreapp.com\n\nThis short review zeroes in on where you're losing lap time, where any gaps are showing up and how to fill them 🚀\n\nAt the bottom of the results page is some free training on how to fill those gaps 👍🏻`,
 
-    "Send Blueprint Link": `OK {name} here you go, instant access to the Podium Contenders Blueprint\nhttps://academy.caminocoaching.co.uk/driver-podium-blueprint/order/\n\n📚 What you'll learn:\n✓ Day 1: The 7 biggest mistakes costing you lap times\n✓ Day 2: The 5-pillar system for accessing flow state on command\n✓ Day 3: Your race weekend mental preparation protocol\n\nComplete all 3 days, and you'll unlock a free strategy call where we'll create your personalised performance roadmap for 2026.\nSee you inside! 🏁\nCraig`,
+    "Send Blueprint Link": `OK {name} here you go, instant access to the Podium Contenders Blueprint\nhttps://academy.caminocoaching.co.uk/podium-contenders-blueprint/order/\n\n📚 What you'll learn:\n✓ Day 1: The 7 biggest mistakes costing you lap times\n✓ Day 2: The 5-pillar system for accessing flow state on command\n✓ Day 3: Your race weekend mental preparation protocol\n\nComplete all 3 days, and you'll unlock a free strategy call where we'll create your personalised performance roadmap for 2026.\nSee you inside! 🏁\nCraig`,
 
-    "Offer Free Training": `Hey {name}, Great to see you will be lining up on the grid this season\nWe have some pre-season free training that many drivers are using to ensure they are on point from the first round this season.\nWant me to send it over?`,
+    "Offer Free Training": `Hey {name}, Great to see you will be lining up on the grid this season\nWe have some pre-season free training that many riders are using to ensure they are on point from the first round this season.\nWant me to send it over?`,
 
     // --- REVIEW DONE → NEXT STEP ---
-    "Follow-Up (Review Done → Blueprint)": `Hey {name},\nSaw you completed the Race Weekend Review — nice one. Most drivers never even get that far. They just keep doing the same thing and wondering why nothing changes.\nYour results actually flagged a couple of areas that the Free Training covers in detail, specifically how the top drivers manage those exact patterns you scored on.\n\nWant me to send you the link?\nCraig`,
+    "Follow-Up (Review Done → Blueprint)": `Hey {name},\nSaw you completed the Race Weekend Review — nice one. Most riders never even get that far. They just keep doing the same thing and wondering why nothing changes.\nYour results actually flagged a couple of areas that the Free Training covers in detail, specifically how the top riders manage those exact patterns you scored on.\n\nWant me to send you the link?\nCraig`,
 
     // --- REVIEW STALLED ---
-    "Stalled: Review Started": `Hey {name}, I see you started the Race Weekend Review but didn't get to the results page - that's where the good stuff is.\n\nYour results break down exactly where you're losing time and why - most drivers tell me they had no idea THAT was the thing holding them back.\n\nPlus the results page unlocks access to free training that covers how to fix those exact gaps before the next round.\n\nTakes about 3 minutes to finish - want me to resend the link?`,
+    "Stalled: Review Started": `Hey {name}, I see you started the Race Weekend Review but didn't get to the results page - that's where the good stuff is.\n\nYour results break down exactly where you're losing time and why - most riders tell me they had no idea THAT was the thing holding them back.\n\nPlus the results page unlocks access to free training that covers how to fix those exact gaps before the next round.\n\nTakes about 3 minutes to finish - want me to resend the link?`,
 
     // --- FOLLOW-UPS ---
     "Follow-Up (Link Sent Check)": `Hi {name} did you manage to take a look at the race weekend review I sent over?`,
 
     "Follow-Up (Review 2 Days) V1": `Hey {name}\nJust checking in - did you get a chance to go through the post-race review I sent over?\nTakes about 5 minutes and shows exactly where the gains are hiding for you.\nLet me know if the link didn't work or if you had any issues with it 👍`,
 
-    "Follow-Up (Review 2 Days) V2": `{name} - wanted to circle back on the race weekend assessment\nMost drivers who complete it say the same thing: 'I didn't realise THAT was what was holding me back'\nIf you're still interested, the link's below. If not, no worries - good luck with the rest of the season 👍`,
+    "Follow-Up (Review 2 Days) V2": `{name} - wanted to circle back on the race weekend assessment\nMost riders who complete it say the same thing: 'I didn't realise THAT was what was holding me back'\nIf you're still interested, the link's below. If not, no worries - good luck with the rest of the season 👍`,
 
     // --- STALLED TRAINING NUDGES ---
     "Stalled: Signed In": `Hi {name} I see you signed into the free training but didn't go much further was everything ok with the link and the platform for you?`,
@@ -112,9 +123,9 @@
     "Stalled: Day 3 Only": `Hey {name}, I see you completed the Free Training but haven't booked your free strategy call yet.\nI have a few slots open this week if you want to dial in your plan for the season?`,
 
     // --- RESCUE DMs ---
-    "Rescue: Day 1 Nudge": `Hey {name}! 👋\n\nNoticed you signed up for the Podium Contenders Blueprint but haven't done Day 1 yet.\n\nThe 7 Biggest Mistakes assessment only takes 20 mins and drivers are telling me it's been a game-changer for understanding where they're leaving time on track.\n\nYour link's still active - want me to resend it?\n\nLet me know if you have any questions!`,
+    "Rescue: Day 1 Nudge": `Hey {name}! 👋\n\nNoticed you signed up for the Podium Contenders Blueprint but haven't done Day 1 yet.\n\nThe 7 Biggest Mistakes assessment only takes 20 mins and riders are telling me it's been a game-changer for understanding where they're leaving time on track.\n\nYour link's still active - want me to resend it?\n\nLet me know if you have any questions!`,
 
-    "Rescue: Day 2 Nudge": `Hey {name}!\n\nLoved seeing your Day 1 results - some really interesting patterns there.\n\nDay 2's 5-Pillar Assessment is where it all comes together though. It shows you exactly which areas will give you the biggest gains.\n\nTakes about 15 mins - you ready to dive in?\n\nHere's your link: https://academy.caminocoaching.co.uk/driver-podium-blueprint/order/`,
+    "Rescue: Day 2 Nudge": `Hey {name}!\n\nLoved seeing your Day 1 results - some really interesting patterns there.\n\nDay 2's 5-Pillar Assessment is where it all comes together though. It shows you exactly which areas will give you the biggest gains.\n\nTakes about 15 mins - you ready to dive in?\n\nHere's your link: https://academy.caminocoaching.co.uk/podium-contenders-blueprint/order/`,
 
     "Rescue: Book Strategy Call": `Hey {name}!\n\nYou've done Day 1 AND Day 2 - that's awesome! You're clearly serious about this.\n\nThe next step is a Strategy Call where we look at your results together and figure out the best path forward for you.\n\nNo pressure, no hard sell - just a real conversation about your racing goals.\n\nI've got some spots open - shall I send the booking link?`
   };
@@ -153,8 +164,8 @@
     "Rescue: Book Strategy Call": null,
   };
 
-  // Templates that should create the driver in the database if they don't exist
-  const CREATE_DRIVER_TEMPLATES = ["Cold Outreach", "Offer Free Training"];
+  // Templates that should create the rider in the database if they don't exist
+  const CREATE_RIDER_TEMPLATES = ["Cold Outreach", "Offer Free Training"];
 
   // Race weekend outreach — uses saveOutreach (no stage change, panel stays open)
   // Only Cold Outreach is race-weekend related and needs circuit
@@ -174,11 +185,11 @@
     return COLD_OUTREACH_VARIATIONS[Math.floor(Math.random() * COLD_OUTREACH_VARIATIONS.length)];
   }
 
-  // Update driver's pipeline stage via the background service worker.
+  // Update rider's pipeline stage via the background service worker.
   // Streamlit needs a full browser page load (WebSocket) to execute its
   // Python script — a simple fetch() just gets the HTML shell. The
   // background worker opens the app in an inactive tab that auto-closes.
-  function updateDriverStage(driverName, stageName, createDriver = false) {
+  function updateRiderStage(driverName, stageName, createRider = false) {
     if (!stageName || !driverName) return;
     // Prefer the real name from the pipeline/outreach card over social page names
     const bestName = pipelineDriverName || driverName;
@@ -188,7 +199,7 @@
       type: 'updateStage',
       driver: bestName,
       stage: stageName,
-      createDriver: createDriver,
+      createRider: createRider,
       socialUrl: getFbProfileUrl() || '',
       circuit: circuit
     });
@@ -200,7 +211,7 @@
   }
 
   // Save outreach WITHOUT changing stage — saves social URL, message text,
-  // and creates driver if needed. Stage is set manually from the contact card.
+  // and creates rider if needed. Stage is set manually from the contact card.
   // Extract the FB profile URL — even when on a Messenger/DM page
   function getFbProfileUrl() {
     const url = window.location.href;
@@ -223,7 +234,7 @@
     return null;
   }
 
-  function saveOutreachToApp(driverName, messageText, templateName, createDriver = false) {
+  function saveOutreachToApp(driverName, messageText, templateName, createRider = false) {
     if (!driverName) return;
     // Prefer the real name from the pipeline/outreach card over social page names
     var bestName = pipelineDriverName || driverName;
@@ -242,8 +253,8 @@
     const profileUrl = getFbProfileUrl() || '';
 
     // Get championship from chrome.storage (synced from Streamlit)
-    chrome.storage.local.get('agd_championship', (data) => {
-      const championship = data.agd_championship || '';
+    chrome.storage.local.get('ag_championship', (data) => {
+      const championship = data.ag_championship || '';
       sendRuntimeMessage({
         type: 'saveOutreach',
         driver: bestName,
@@ -251,7 +262,7 @@
         platform: platform,
         message: messageText.substring(0, 1800),
         template: templateName,
-        createDriver: createDriver,
+        createRider: createRider,
         circuit: circuit,
         championship: championship
       }, (response) => {
@@ -266,16 +277,32 @@
     });
   }
 
-  // ── Auto-save social URL when driver detected from pipeline ──────────────
+  // ── Auto-save social URL when rider detected from pipeline ──────────────
   // Saves the FB/Messenger URL silently. NO tick shown — tick only appears
   // when user takes an explicit action (template click, manual save).
   function autoSaveSocialUrl() {
     const url = window.location.href;
     if (autoSavedUrl === url) return;  // Already saved this URL
-    if (!currentName && !pipelineDriverName) return;
+
+    // Only auto-save when user came from the pipeline app (pipelineDriverName set)
+    // Don't save URLs just because someone is browsing FB/Messenger
+    if (!pipelineDriverName) return;
 
     const driverName = pipelineDriverName || currentName;
     if (!driverName) return;
+
+    // Wait for DB lookup to finish so we use the real name, not the social username
+    // This prevents creating duplicate records
+    if (!dbLookupDone) {
+      console.log('[AG] Auto-save deferred — waiting for DB lookup');
+      return;
+    }
+
+    // Final safety check: reject notification text that slipped through
+    if (/\b(messaged you|sent you|replied to|liked your|mentioned you|reacted to|is typing|was active|shared a|tagged you|commented on)\b/i.test(driverName)) {
+      console.warn('[AG] Blocked auto-save — name looks like notification text:', driverName);
+      return;
+    }
 
     autoSavedUrl = url;
 
@@ -335,9 +362,9 @@
 
   // ── Styles ──────────────────────────────────────────────────────────────
   function injectStyles() {
-    if (document.getElementById('antigravity-driver-styles')) return;
+    if (document.getElementById('antigravity-styles')) return;
     const style = document.createElement('style');
-    style.id = 'antigravity-driver-styles';
+    style.id = 'antigravity-styles';
     style.textContent = `
       #${BUTTON_ID} {
         position: fixed;
@@ -346,11 +373,11 @@
         width: 56px;
         height: 56px;
         border-radius: 50%;
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         border: none;
         cursor: pointer;
         z-index: 100000;
-        box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -359,11 +386,11 @@
       }
       #${BUTTON_ID}:hover {
         transform: scale(1.1);
-        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
       }
       #${BUTTON_ID}:active { transform: scale(0.95); }
       #${BUTTON_ID} svg { width: 28px; height: 28px; fill: white; }
-      #${BUTTON_ID}.no-driver {
+      #${BUTTON_ID}.no-rider {
         background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
         box-shadow: 0 4px 14px rgba(107, 114, 128, 0.35);
       }
@@ -418,7 +445,7 @@
 
       .ag-panel-header {
         padding: 10px 14px;
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         flex-shrink: 0;
       }
       .ag-panel-header h2 {
@@ -473,7 +500,7 @@
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: #3b82f6;
+        color: #10b981;
         padding: 12px 0 6px;
         margin: 0;
         border-bottom: 1px solid #1f2937;
@@ -497,28 +524,28 @@
       }
       .ag-template-btn:hover {
         background: #374151;
-        border-color: #3b82f6;
+        border-color: #10b981;
         color: white;
       }
       .ag-template-btn .ag-tmpl-name {
         font-weight: 600;
         display: block;
         margin-bottom: 2px;
-        color: #3b82f6;
+        color: #10b981;
         font-size: 12px;
       }
       .ag-template-btn.ag-outreach {
-        background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
-        border-color: #3b82f6;
+        background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+        border-color: #10b981;
         padding: 9px 10px;
       }
       .ag-template-btn.ag-outreach:hover {
-        background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%);
-        border-color: #60a5fa;
+        background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+        border-color: #34d399;
       }
       .ag-template-btn.ag-outreach .ag-tmpl-name {
         font-size: 12px;
-        color: #60a5fa;
+        color: #34d399;
       }
       .ag-template-btn .ag-tmpl-preview {
         color: #9ca3af;
@@ -533,7 +560,7 @@
         position: fixed;
         top: 90px;
         right: 380px;
-        background: #3b82f6;
+        background: #10b981;
         color: white;
         padding: 10px 20px;
         border-radius: 8px;
@@ -547,6 +574,53 @@
       }
       .ag-copied-toast.show { opacity: 1; }
 
+      .ag-cross-links {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .ag-cross-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid;
+      }
+      .ag-cross-link.ag-link-ig {
+        background: linear-gradient(135deg, #833AB4 0%, #E1306C 50%, #F77737 100%);
+        color: white;
+        border-color: transparent;
+      }
+      .ag-cross-link.ag-link-ig:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(225, 48, 108, 0.4);
+      }
+      .ag-cross-link.ag-link-fb {
+        background: #1877F2;
+        color: white;
+        border-color: transparent;
+      }
+      .ag-cross-link.ag-link-fb:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(24, 119, 242, 0.4);
+      }
+      .ag-cross-link.ag-link-app {
+        background: #059669;
+        color: white;
+        border-color: transparent;
+      }
+      .ag-cross-link.ag-link-app:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(5, 150, 105, 0.4);
+      }
+
       .ag-panel-footer {
         padding: 8px 12px;
         border-top: 1px solid #1f2937;
@@ -555,16 +629,16 @@
       .ag-panel-footer a {
         display: block;
         text-align: center;
-        color: #3b82f6;
+        color: #10b981;
         text-decoration: none;
         font-size: 11px;
         padding: 6px;
-        border: 1px solid #3b82f6;
+        border: 1px solid #10b981;
         border-radius: 6px;
         transition: all 0.15s;
       }
       .ag-panel-footer a:hover {
-        background: rgba(59, 130, 246, 0.1);
+        background: rgba(16, 185, 129, 0.1);
       }
     `;
     document.head.appendChild(style);
@@ -587,7 +661,7 @@
     'check-ins', 'more', 'filters', 'reels', 'family', 'male', 'female',
     'collection', 'see all', 'edit profile', 'log in', 'sign up'];
 
-  function isValidDriverName(text) {
+  function isValidRiderName(text) {
     if (!text || text.length < 2 || text.length > 50) return false;
     const lower = text.toLowerCase().trim();
     // Must contain at least one letter
@@ -598,6 +672,8 @@
     // Skip things that look like UI (timestamps, status text, etc.)
     if (/^\d/.test(text)) return false; // Starts with number
     if (/^(you:|reply\?|·|\d+[hmd]\b)/i.test(text)) return false;
+    // Skip notification/activity text (e.g. "Clint messaged you", "Nick sent you a message")
+    if (/\b(messaged you|sent you|replied to|liked your|mentioned you|reacted to|started a|is typing|is online|was active|shared a|tagged you|commented on|invited you|accepted your|poked you)\b/i.test(lower)) return false;
     return true;
   }
 
@@ -624,8 +700,21 @@
     return url.includes('/messages') || url.includes('/t/') || url.includes('messenger.com');
   }
 
+  // Check if user is inside an ACTIVE conversation (not just the inbox list)
+  // /messages/t/123456 = active conversation
+  // /messages or /messages/inbox = just the list view — NO name extraction here
+  function isActiveConversation() {
+    const url = window.location.href;
+    // On messenger.com: must have /t/ segment (active thread)
+    if (url.includes('messenger.com')) return url.includes('/t/');
+    // On facebook.com/messages: must have /t/ (specific thread open)
+    if (url.includes('/messages')) return url.includes('/t/');
+    // Not a messenger page at all
+    return false;
+  }
+
   function extractConversationName() {
-    const DEBUG = false; // flip to true in DevTools: document.querySelector('#antigravity-driver-btn').__AG_DEBUG = true
+    const DEBUG = false; // flip to true in DevTools: document.querySelector('#antigravity-rider-btn').__AG_DEBUG = true
     function dbg(...args) { if (DEBUG) console.log('[AG]', ...args); }
 
     // TOP PRIORITY: If we have a pipeline driver name and we're NOT in Messenger,
@@ -658,7 +747,7 @@
             const name = cleaned.split(sep)[0].trim();
             // Strip parenthetical like "(1 mutual friend)" etc
             const stripped = name.replace(/\(.*?\)/g, '').trim();
-            if (isValidDriverName(stripped) && stripped.includes(' ')) {
+            if (isValidRiderName(stripped) && stripped.includes(' ')) {
               dbg('P1 title match:', stripped);
               return cleanName(stripped);
             }
@@ -666,7 +755,7 @@
         }
         // Title might just be the name with no separator
         const plainTitle = cleaned.replace(/\(.*?\)/g, '').trim();
-        if (isValidDriverName(plainTitle) && plainTitle.includes(' ')) {
+        if (isValidRiderName(plainTitle) && plainTitle.includes(' ')) {
           dbg('P1 plain title match:', plainTitle);
           return cleanName(plainTitle);
         }
@@ -678,13 +767,13 @@
         const spans = h1.querySelectorAll('span');
         for (const span of spans) {
           const text = span.textContent.trim();
-          if (isValidDriverName(text) && text.includes(' ')) {
+          if (isValidRiderName(text) && text.includes(' ')) {
             dbg('P2 h1>span match:', text);
             return cleanName(text);
           }
         }
         const text = h1.textContent.trim();
-        if (isValidDriverName(text) && text.includes(' ')) {
+        if (isValidRiderName(text) && text.includes(' ')) {
           dbg('P2 h1 text match:', text);
           return cleanName(text);
         }
@@ -698,13 +787,13 @@
           const spans = heading.querySelectorAll('span');
           for (const span of spans) {
             const text = span.textContent.trim();
-            if (isValidDriverName(text) && text.includes(' ')) {
+            if (isValidRiderName(text) && text.includes(' ')) {
               dbg('P3 heading>span match:', text);
               return cleanName(text);
             }
           }
           const text = heading.textContent.trim();
-          if (isValidDriverName(text) && text.includes(' ')) {
+          if (isValidRiderName(text) && text.includes(' ')) {
             dbg('P3 heading text match:', text);
             return cleanName(text);
           }
@@ -719,13 +808,13 @@
           const spans = h2.querySelectorAll('span');
           for (const span of spans) {
             const text = span.textContent.trim();
-            if (isValidDriverName(text) && text.includes(' ')) {
+            if (isValidRiderName(text) && text.includes(' ')) {
               dbg('P4 h2>span match:', text);
               return cleanName(text);
             }
           }
           const text = h2.textContent.trim();
-          if (isValidDriverName(text) && text.includes(' ')) {
+          if (isValidRiderName(text) && text.includes(' ')) {
             dbg('P4 h2 text match:', text);
             return cleanName(text);
           }
@@ -736,7 +825,7 @@
       const ogTitle = document.querySelector('meta[property="og:title"]');
       if (ogTitle) {
         const text = ogTitle.content.trim().replace(/\(.*?\)/g, '').trim();
-        if (isValidDriverName(text) && text.includes(' ')) {
+        if (isValidRiderName(text) && text.includes(' ')) {
           dbg('P5 og:title match:', text);
           return cleanName(text);
         }
@@ -751,7 +840,7 @@
         const fontSize = parseFloat(style.fontSize);
         if (fontSize >= 18) {
           const text = span.textContent.trim();
-          if (isValidDriverName(text) && text.includes(' ')) {
+          if (isValidRiderName(text) && text.includes(' ')) {
             dbg('P6 large span match:', text, 'fontSize:', fontSize);
             return cleanName(text);
           }
@@ -763,7 +852,14 @@
     }
 
     // ── MESSENGER PAGE: Chat header strategies ──
-    dbg('Messenger page detected:', window.location.href);
+    // CRITICAL: Only extract names if we're inside an active conversation.
+    // On the inbox list (/messages), heading text like "Clint messaged you"
+    // would be scraped as driver names.
+    if (!isActiveConversation()) {
+      dbg('Messenger inbox (no active conversation) — skipping name extraction');
+      return null;
+    }
+    dbg('Active conversation detected:', window.location.href);
 
     // Strategy M1: Page title — most reliable cross-platform
     // Formats: "Messenger | FirstName LastName", "(1) FirstName LastName | Facebook",
@@ -779,7 +875,7 @@
           // Try all parts, preferring the non-"Messenger"/"Facebook" ones
           for (const part of [...parts].reverse()) {
             const name = part.trim();
-            if (isValidDriverName(name)) {
+            if (isValidRiderName(name)) {
               dbg('M1 title match:', name);
               return cleanName(name);
             }
@@ -788,7 +884,7 @@
       }
       // Title might just be the person's name (no separator)
       const plainTitle = cleaned.trim();
-      if (isValidDriverName(plainTitle) && plainTitle.includes(' ')) {
+      if (isValidRiderName(plainTitle) && plainTitle.includes(' ')) {
         dbg('M1 plain title match:', plainTitle);
         return cleanName(plainTitle);
       }
@@ -808,13 +904,13 @@
         const spans = a.querySelectorAll('span');
         for (const span of spans) {
           const text = span.textContent.trim();
-          if (isValidDriverName(text)) {
+          if (isValidRiderName(text)) {
             dbg('M2 link>span match:', text, 'href:', href);
             return cleanName(text);
           }
         }
         const linkText = a.textContent.trim();
-        if (isValidDriverName(linkText)) {
+        if (isValidRiderName(linkText)) {
           dbg('M2 link text match:', linkText);
           return cleanName(linkText);
         }
@@ -829,13 +925,13 @@
         const spans = h.querySelectorAll('span');
         for (const span of spans) {
           const text = span.textContent.trim();
-          if (isValidDriverName(text)) {
+          if (isValidRiderName(text)) {
             dbg('M3 heading>span match:', text);
             return cleanName(text);
           }
         }
         const text = h.textContent.trim();
-        if (isValidDriverName(text)) {
+        if (isValidRiderName(text)) {
           dbg('M3 heading text match:', text);
           return cleanName(text);
         }
@@ -854,7 +950,7 @@
       // Chat header names are typically bold (600-700+) and decent size (14px+)
       if (fontWeight >= 600 && fontSize >= 13) {
         const text = span.textContent.trim();
-        if (isValidDriverName(text)) {
+        if (isValidRiderName(text)) {
           dbg('M4 bold span match:', text, 'weight:', fontWeight, 'size:', fontSize);
           return cleanName(text);
         }
@@ -873,7 +969,7 @@
       const spans = el.querySelectorAll('span');
       for (const span of spans) {
         const text = span.textContent.trim();
-        if (isValidDriverName(text) && text.includes(' ')) {
+        if (isValidRiderName(text) && text.includes(' ')) {
           dbg('M5 clickable>span match:', text);
           return cleanName(text);
         }
@@ -886,7 +982,7 @@
       const compElements = complementary.querySelectorAll('h1, h2, h3, span[dir="auto"], [role="heading"]');
       for (const el of compElements) {
         const text = el.textContent.trim();
-        if (isValidDriverName(text)) {
+        if (isValidRiderName(text)) {
           dbg('M6 complementary match:', text);
           return cleanName(text);
         }
@@ -905,7 +1001,7 @@
         .replace(/^(conversation with|chat with|messaging|messages?)\s*/i, '')
         .replace(/\(.*?\)/g, '')
         .trim();
-      if (isValidDriverName(stripped) && stripped.includes(' ')) {
+      if (isValidRiderName(stripped) && stripped.includes(' ')) {
         dbg('M7 aria-label match:', stripped, 'from:', label);
         return cleanName(stripped);
       }
@@ -938,6 +1034,36 @@
     if (fullName.includes('_')) return fullName.split('_')[0].replace(/^./, function (c) { return c.toUpperCase(); });
     // Single word — capitalize and return
     return fullName.charAt(0).toUpperCase() + fullName.slice(1);
+  }
+
+  // ── Fix name in AI message: replace username/wrong name with real DB name ──
+  // Handles cases where the Streamlit app baked the social username into the message
+  let _originalScrapedName = null;
+  function fixNameInMessage(msg) {
+    const realFirst = getFirstName(currentName);
+    // Step 1: replace {name} placeholder (normal case)
+    let fixed = msg.replace(/\{name\}/g, realFirst);
+    // Step 2: if the original scraped name differs from the DB name,
+    // find and replace it in the message text
+    if (_originalScrapedName && _originalScrapedName !== currentName) {
+      const scraped = _originalScrapedName.trim();
+      const scrapedNoDots = scraped.replace(/[_.]/g, '').replace(/^\d+/, '');
+      const scrapedParts = scraped.replace(/[_.]/g, ' ').replace(/^\d+/, '').trim();
+      const scrapedFirst = scrapedParts.split(' ')[0];
+      const scrapedTrunc = scrapedNoDots.length > 7 ? scrapedNoDots.substring(0, 7) : '';
+      const variants = [scraped, scrapedNoDots, scrapedParts, scrapedFirst];
+      if (scrapedTrunc) variants.push(scrapedTrunc);
+      const unique = [...new Set(variants.filter(v => v && v.length >= 3))];
+      unique.sort((a, b) => b.length - a.length);
+      for (const variant of unique) {
+        const re = new RegExp(variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        if (re.test(fixed)) {
+          fixed = fixed.replace(re, realFirst);
+          break;
+        }
+      }
+    }
+    return fixed;
   }
 
   // ── Paste into Messenger input ──────────────────────────────────────────
@@ -1100,7 +1226,7 @@
   // Scrapes the last ~10 visible messages from the active Messenger conversation
   // to send to the Streamlit app as a conversation log reference.
 
-  let lastCapturedName = null;   // Track which driver we last captured for
+  let lastCapturedName = null;   // Track which rider we last captured for
   let captureTimeout = null;     // Debounce capture
 
   function extractConversationMessages() {
@@ -1189,7 +1315,7 @@
 
     // Also store locally for quick reference
     try {
-      const key = `agd_msgs_${driverName.toLowerCase().replace(/\s+/g, '_')}`;
+      const key = `ag_msgs_${driverName.toLowerCase().replace(/\s+/g, '_')}`;
       chrome.storage.local.set({ [key]: { messages, timestamp: Date.now() } });
     } catch (e) { /* ignore storage errors */ }
 
@@ -1218,7 +1344,7 @@
       document.body.appendChild(toast);
     }
     toast.textContent = message;
-    toast.style.background = color || '#3b82f6';
+    toast.style.background = color || '#10b981';
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 2500);
   }
@@ -1230,13 +1356,16 @@
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
 
-    const firstName = getFirstName(currentName);
+    // NOTE: firstName is computed dynamically at click time via getFirstName(currentName)
+    // Do NOT use a const here — the DB lookup may update pipelineDriverName/currentName after panel creation
+    // Stash the original scraped name so fixNameInMessage can find/replace it later
+    _originalScrapedName = currentName;
 
     // Header
     const header = document.createElement('div');
     header.className = 'ag-panel-header';
     header.innerHTML = `
-      <h2>🏁 ${currentName || 'Driver'}</h2>
+      <h2>🏁 ${currentName || 'Rider'}</h2>
       <p class="ag-subtitle">Pick a reply template below</p>
       <div class="ag-circuit-row">
         <label>Circuit / Track:</label>
@@ -1247,13 +1376,142 @@
     // Pre-populate circuit from storage, and save on change
     const circuitEl = header.querySelector('#ag-circuit-input');
     if (circuitEl) {
-      chrome.storage.local.get('agd_circuit', (data) => {
-        if (data.agd_circuit && !circuitEl.value) circuitEl.value = data.agd_circuit;
+      chrome.storage.local.get('ag_circuit', (data) => {
+        if (data.ag_circuit && !circuitEl.value) circuitEl.value = data.ag_circuit;
       });
       circuitEl.addEventListener('input', () => {
         const val = circuitEl.value.trim();
-        if (val) chrome.storage.local.set({ agd_circuit: val });
+        if (val) chrome.storage.local.set({ ag_circuit: val });
       });
+    }
+
+    // ── DATABASE STATUS BANNER (URL lookup) ──
+    const dbBanner = document.createElement('div');
+    dbBanner.className = 'ag-db-status';
+    dbBanner.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;margin:0 0 8px 0;text-align:center;transition:all 0.3s ease;';
+    dbBanner.style.background = '#374151';
+    dbBanner.style.color = '#9ca3af';
+    dbBanner.textContent = '🔍 Checking database...';
+    header.appendChild(dbBanner);
+
+    // Perform fast URL lookup against Airtable
+    const detectedFbUrl = getFbProfileUrl();
+    console.log('[AG] FB Panel opened — checking URL in database:', detectedFbUrl, 'driver:', currentName);
+    if (detectedFbUrl) {
+      sendRuntimeMessage({
+        type: 'lookupUrl',
+        fbUrl: detectedFbUrl,
+        driverName: currentName || ''
+      }, (response) => {
+        if (response && response.found) {
+          const stageBadge = response.stage || 'Contact';
+          const champText = response.championship ? ` • ${response.championship}` : '';
+          const name = (response.fullName || '').trim();
+          const totalMatches = response.totalMatches || 1;
+
+          // Smart overlap check — compare the ORIGINAL scraped name (from the page)
+          // with the DB name to detect URL clashes (wrong URL on wrong record)
+          const scrapedName = currentName || '';  // This is still the original page name
+          const currentLower = scrapedName.toLowerCase().replace(/[_.\-]/g, ' ').replace(/^\d+/, '');
+          const matchedLower = name.toLowerCase().replace(/[_.\-]/g, ' ');
+          const nameTokens = currentLower.split(/\s+/).filter(t => t.length > 1);
+          const matchTokens = matchedLower.split(/\s+/).filter(t => t.length > 1);
+          const exactOverlap = nameTokens.some(t => matchTokens.includes(t));
+          const substringOverlap = nameTokens.some(nt =>
+            matchTokens.some(mt => (nt.length >= 4 && mt.length >= 3 && (nt.includes(mt) || mt.includes(nt))))
+          );
+          const joinedCurrent = currentLower.replace(/\s+/g, '');
+          const concatOverlap = matchTokens.length >= 2 && matchTokens.every(mt =>
+            joinedCurrent.includes(mt.substring(0, Math.min(mt.length, 4)))
+          );
+          const hasOverlap = exactOverlap || substringOverlap || concatOverlap;
+
+          if (!hasOverlap && scrapedName && name) {
+            // URL CLASH — this URL belongs to a DIFFERENT person's record
+            // Do NOT update currentName — keep the original scraped name
+            dbBanner.style.background = '#92400e';
+            dbBanner.style.color = '#fde68a';
+            dbBanner.innerHTML = `⚠️ URL CLASH: This URL is on <strong>${name}</strong>'s record [${stageBadge}]` +
+              (totalMatches > 1 ? `<br>📋 ${totalMatches} records share this URL` : '');
+            console.log('[AG] URL CLASH: page shows "' + scrapedName + '" but URL belongs to "' + name + '"');
+          } else {
+            // Same person — update name from DB (only if app didn't set it)
+            if (name && name.includes(' ') && !_nameSetByApp) {
+              pipelineDriverName = name;
+              currentName = name;
+              const h2 = header.querySelector('h2');
+              if (h2) h2.textContent = `🏁 ${name}`;
+              console.log('[AG] Using DB name for messages:', name);
+            } else if (_nameSetByApp) {
+              console.log('[AG] App name locked: "' + pipelineDriverName + '" — DB confirmed: "' + name + '"');
+            }
+            dbBanner.style.background = '#065f46';
+            dbBanner.style.color = '#d1fae5';
+            let html = `✅ IN DATABASE: <strong>${name || currentName}</strong> [${stageBadge}]${champText}`;
+            if (totalMatches > 1) {
+              html += `<br><span style="font-size:11px;opacity:0.8">⚠️ ${totalMatches} records share this URL</span>`;
+            }
+            dbBanner.innerHTML = html;
+          }
+
+          dbLookupDone = true;
+          // Only trigger auto-save if same person (overlap)
+          if (hasOverlap) setTimeout(() => autoSaveSocialUrl(), 200);
+
+          // ── CROSS-PLATFORM LINKS ──
+          // Show clickable links to message rider on their other platform profiles
+          const linksDiv = document.createElement('div');
+          linksDiv.className = 'ag-cross-links';
+          // Use currentName (updated only if same person) not the raw DB name
+          const driverNameForHash = currentName || '';
+
+          // IG link (we're on Facebook, so IG is the "other" platform)
+          // Appends #ag_driver=Name so the IG content script picks up the correct driver name instantly
+          if (response.igUrl) {
+            const igUrl = response.igUrl.split('#')[0] + '#ag_driver=' + encodeURIComponent(driverNameForHash);
+            const igLink = document.createElement('a');
+            igLink.className = 'ag-cross-link ag-link-ig';
+            igLink.href = igUrl;
+            igLink.target = '_blank';
+            igLink.rel = 'noopener';
+            igLink.textContent = '📨 Message on Instagram';
+            // Also store driver name in chrome.storage for the other platform
+            igLink.addEventListener('click', () => {
+              try { chrome.storage.local.set({ ag_current_driver: driverNameForHash }); } catch (e) { }
+            });
+            linksDiv.appendChild(igLink);
+          }
+
+          // FB Messenger link (if they have a different FB URL, e.g. from a profile page)
+          if (response.fbUrl && response.fbUrl !== detectedFbUrl) {
+            const fbLink = document.createElement('a');
+            fbLink.className = 'ag-cross-link ag-link-fb';
+            fbLink.href = response.fbUrl.split('#')[0] + '#ag_driver=' + encodeURIComponent(driverNameForHash);
+            fbLink.target = '_blank';
+            fbLink.rel = 'noopener';
+            fbLink.textContent = '💬 Open FB Profile';
+            linksDiv.appendChild(fbLink);
+          }
+
+          if (linksDiv.children.length > 0) {
+            dbBanner.after(linksDiv);
+          }
+
+          console.log('[AG] FB URL match found:', response);
+        } else {
+          dbBanner.style.background = '#1e3a5f';
+          dbBanner.style.color = '#93c5fd';
+          dbBanner.textContent = '🆕 NEW PROSPECT — not yet in database';
+          dbLookupDone = true;
+          setTimeout(() => autoSaveSocialUrl(), 200);
+          console.log('[AG] No FB URL match:', response);
+        }
+      });
+    } else {
+      dbBanner.style.background = '#78350f';
+      dbBanner.style.color = '#fde68a';
+      dbBanner.textContent = '⚠️ Could not detect FB URL — save will use name match';
+      dbLookupDone = true;
     }
 
     // Body with templates
@@ -1292,7 +1550,7 @@
 
     const aiBtn = document.createElement('button');
     aiBtn.className = 'ag-template-btn ag-outreach';
-    aiBtn.style.cssText = 'background:#2563eb;color:white;border:none;margin-bottom:12px;';
+    aiBtn.style.cssText = 'background:#059669;color:white;border:none;margin-bottom:12px;';
     aiBtn.innerHTML = `
       <span class="ag-tmpl-name">🤖 AI Race Outreach</span>
       <span class="ag-tmpl-preview">Loading from app...</span>
@@ -1301,25 +1559,25 @@
     body.appendChild(aiMsgContainer);
 
     // Load AI message from chrome.storage
-    // AI message may use {name} placeholder — replaced at click time with current driver's first name
+    // AI message may use {name} placeholder — replaced at click time with current rider's first name
     let currentAiTemplate = '';
 
     function updateAiButton(template) {
       currentAiTemplate = template;
       // Replace {name} placeholder with actual first name for preview
-      const preview = template.replace(/\{name\}/g, firstName).replace(/\n/g, ' ').substring(0, 80);
+      const preview = fixNameInMessage(template).replace(/\n/g, ' ').substring(0, 80);
       const previewEl = aiBtn.querySelector('.ag-tmpl-preview');
       if (previewEl) previewEl.textContent = preview + (template.length > 80 ? '...' : '');
       aiMsgContainer.style.display = 'block';
     }
 
-    // Look up driver-specific AI message from the per-driver dictionary,
+    // Look up rider-specific AI message from the per-rider dictionary,
     // falling back to the single default message if no match found.
     function loadAiMessage() {
       try {
-        chrome.storage.local.get(['agd_ai_messages', 'agd_ai_outreach_msg', 'agd_current_driver'], (data) => {
-          const driverName = pipelineDriverName || (data && data.agd_current_driver) || currentName || '';
-          const msgs = (data && data.agd_ai_messages) || {};
+        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver'], (data) => {
+          const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
+          const msgs = (data && data.ag_ai_messages) || {};
 
           // Try exact match, then partial match (first name or last name)
           let template = msgs[driverName];
@@ -1336,8 +1594,8 @@
           }
 
           // Fall back to single message
-          if (!template && data && data.agd_ai_outreach_msg) {
-            template = data.agd_ai_outreach_msg;
+          if (!template && data && data.ag_ai_outreach_msg) {
+            template = data.ag_ai_outreach_msg;
           }
 
           if (template) {
@@ -1350,10 +1608,10 @@
     }
     loadAiMessage();
 
-    // Re-check when storage changes (e.g. user opens new driver in app)
+    // Re-check when storage changes (e.g. user opens new rider in app)
     try {
       chrome.storage.onChanged.addListener((changes) => {
-        if (changes.agd_ai_messages || changes.agd_ai_outreach_msg || changes.agd_current_driver) {
+        if (changes.ag_ai_messages || changes.ag_ai_outreach_msg || changes.ag_current_driver) {
           loadAiMessage();
         }
       });
@@ -1363,7 +1621,7 @@
 
     aiBtn.addEventListener('click', async () => {
       if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
-      const msg = currentAiTemplate.replace(/\{name\}/g, firstName);
+      const msg = fixNameInMessage(currentAiTemplate);
       const pasted = await pasteIntoMessenger(msg);
       if (pasted) {
         showToast('🤖 AI message pasted!');
@@ -1389,11 +1647,11 @@
         if (!template) continue;
 
         const btn = document.createElement('button');
-        btn.className = CREATE_DRIVER_TEMPLATES.includes(key)
+        btn.className = CREATE_RIDER_TEMPLATES.includes(key)
           ? 'ag-template-btn ag-outreach'
           : 'ag-template-btn';
 
-        const preview = template.replace('{name}', firstName).replace('{circuit}', '___').substring(0, 80);
+        const preview = template.replace('{name}', getFirstName(currentName)).replace('{circuit}', '___').substring(0, 80);
 
         btn.innerHTML = `
           <span class="ag-tmpl-name">${key}</span>
@@ -1409,10 +1667,10 @@
             return;
           }
           let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach() : template;
-          const msg = tmpl.replace(/\{name\}/g, firstName).replace(/\{circuit\}/g, circuit);
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName)).replace(/\{circuit\}/g, circuit);
           const pasted = await pasteIntoMessenger(msg);
           const stage = TEMPLATE_STAGE_MAP[key];
-          const shouldCreate = CREATE_DRIVER_TEMPLATES.includes(key);
+          const shouldCreate = CREATE_RIDER_TEMPLATES.includes(key);
           const isOutreach = RACE_OUTREACH_TEMPLATES.includes(key);
 
           if (isOutreach) {
@@ -1429,7 +1687,7 @@
             // NON-OUTREACH: set stage immediately + close panel
             if (pasted) {
               if (stage) {
-                updateDriverStage(currentName, stage, shouldCreate);
+                updateRiderStage(currentName, stage, shouldCreate);
                 showStageBadge(stage);
               } else {
                 showToast('Pasted — review & hit send');
@@ -1437,7 +1695,7 @@
             } else {
               await navigator.clipboard.writeText(msg);
               if (stage) {
-                updateDriverStage(currentName, stage, shouldCreate);
+                updateRiderStage(currentName, stage, shouldCreate);
                 showStageBadge(stage);
               } else {
                 showToast('📋 Copied — paste with Ctrl+V');
@@ -1454,8 +1712,8 @@
     // Footer
     const footer = document.createElement('div');
     footer.className = 'ag-panel-footer';
-    const driverParam = encodeURIComponent(currentName || '');
-    footer.innerHTML = `<a href="${APP_URL}?driver=${driverParam}&tab=dashboard" target="_blank">Open full card in Pipeline App →</a>`;
+    const riderParam = encodeURIComponent(currentName || '');
+    footer.innerHTML = `<a href="${APP_URL}?rider=${riderParam}&tab=dashboard" target="_blank">Open full card in Pipeline App →</a>`;
 
     panel.appendChild(header);
     panel.appendChild(body);
@@ -1463,7 +1721,7 @@
     document.body.appendChild(panel);
   }
 
-  // ── Update panel content when driver changes ─────────────────────────────
+  // ── Update panel content when rider changes ─────────────────────────────
   function updatePanel() {
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
@@ -1472,13 +1730,13 @@
 
     // Update header name
     const h2 = panel.querySelector('.ag-panel-header h2');
-    if (h2) h2.innerHTML = `🏁 ${currentName || 'Driver'}`;
+    if (h2) h2.innerHTML = `🏁 ${currentName || 'Rider'}`;
 
     // Update footer link
     const link = panel.querySelector('.ag-panel-footer a');
     if (link) {
-      const driverParam = encodeURIComponent(currentName || '');
-      link.href = `${APP_URL}?driver=${driverParam}&tab=dashboard`;
+      const riderParam = encodeURIComponent(currentName || '');
+      link.href = `${APP_URL}?rider=${riderParam}&tab=dashboard`;
     }
 
     // Get ONLY the template buttons (skip special buttons: capture, save URL, AI outreach)
@@ -1515,10 +1773,10 @@
             return;
           }
           let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach() : template;
-          const msg = tmpl.replace(/\{name\}/g, firstName).replace(/\{circuit\}/g, circuit);
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName)).replace(/\{circuit\}/g, circuit);
           const pasted = await pasteIntoMessenger(msg);
           const stage = TEMPLATE_STAGE_MAP[key];
-          const shouldCreate = CREATE_DRIVER_TEMPLATES.includes(key);
+          const shouldCreate = CREATE_RIDER_TEMPLATES.includes(key);
           const isOutreach = RACE_OUTREACH_TEMPLATES.includes(key);
 
           if (isOutreach) {
@@ -1532,14 +1790,14 @@
           } else {
             if (pasted) {
               if (stage) {
-                updateDriverStage(currentName, stage, shouldCreate);
+                updateRiderStage(currentName, stage, shouldCreate);
                 showToast(`Pasted — stage → ${stage.replace(/_/g, ' ')}`);
               } else {
                 showToast('Pasted — review & hit send');
               }
             } else {
               await navigator.clipboard.writeText(msg);
-              if (stage) updateDriverStage(currentName, stage, shouldCreate);
+              if (stage) updateRiderStage(currentName, stage, shouldCreate);
               showToast('Copied — paste with Ctrl+V then hit send');
             }
             if (panelOpen) togglePanel();
@@ -1561,7 +1819,7 @@
     if (panelOpen) {
       panel.classList.add('open');
       btn.classList.add('panel-open');
-      btn.title = 'Close driver card';
+      btn.title = 'Close rider card';
     } else {
       panel.classList.remove('open');
       btn.classList.remove('panel-open');
@@ -1575,7 +1833,7 @@
 
     const btn = document.createElement('button');
     btn.id = BUTTON_ID;
-    btn.title = 'Open driver contact card (drag to move)';
+    btn.title = 'Open rider contact card (drag to move)';
     btn.innerHTML = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
     </svg>`;
@@ -1615,7 +1873,7 @@
         btn.style.transition = 'all 0.2s ease';
         // Save position
         try {
-          chrome.storage.local.set({ agd_btn_pos_fb: { left: btn.style.left, top: btn.style.top } });
+          chrome.storage.local.set({ ag_btn_pos_fb: { left: btn.style.left, top: btn.style.top } });
         } catch (e) { }
       }
       dragStartX = null;
@@ -1648,11 +1906,11 @@
 
     // Restore saved position
     try {
-      chrome.storage.local.get('agd_btn_pos_fb', (data) => {
-        if (data.agd_btn_pos_fb) {
+      chrome.storage.local.get('ag_btn_pos_fb', (data) => {
+        if (data.ag_btn_pos_fb) {
           btn.style.right = 'auto';
-          btn.style.left = data.agd_btn_pos_fb.left;
-          btn.style.top = data.agd_btn_pos_fb.top;
+          btn.style.left = data.ag_btn_pos_fb.left;
+          btn.style.top = data.ag_btn_pos_fb.top;
         }
       });
     } catch (e) { }
@@ -1679,10 +1937,10 @@
       }
 
       currentName = name;
-      btn.classList.remove('no-driver');
+      btn.classList.remove('no-rider');
       btn.title = `Open ${name}'s contact card`;
 
-      // Auto-save social URL when driver detected (non-messenger pages)
+      // Auto-save social URL when rider detected (non-messenger pages)
       // Fires on FB search results / profile pages opened from pipeline
       setTimeout(() => autoSaveSocialUrl(), 1500);
 
@@ -1714,7 +1972,7 @@
       }
     } else if (!name) {
       currentName = null;
-      btn.classList.add('no-driver');
+      btn.classList.add('no-rider');
       btn.title = 'Open a conversation first';
     }
   }
@@ -1758,10 +2016,10 @@
         // Reset auto-open tracking on navigation
         lastAutoOpenName = null;
         // Clear stale pipeline name BEFORE checking hash — prevents wrong
-        // driver showing when navigating between profiles without #ag_driver=
+        // rider showing when navigating between profiles without #ag_driver=
         pipelineDriverName = null;
         // Check for new #ag_driver= hash on navigation (sets pipelineDriverName if present)
-        checkHashForDriverName();
+        checkHashForRiderName();
         // Clear pipeline name when entering Messenger (use real chat name)
         if (isMessengerPage()) {
           pipelineDriverName = null;

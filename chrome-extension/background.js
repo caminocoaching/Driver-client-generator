@@ -20,7 +20,7 @@ const ACTIVITY_LOG_URL = (typeof AIRTABLE_BASE_ID !== 'undefined')
   : null;
 
 // ── Audit Logger: records every stage change ──
-function logActivity(driver, oldStage, newStage, source) {
+function logActivity(rider, oldStage, newStage, source) {
   if (!ACTIVITY_LOG_URL || typeof AIRTABLE_API_KEY === 'undefined') return;
   fetch(ACTIVITY_LOG_URL, {
     method: 'POST',
@@ -54,7 +54,7 @@ const BACKOFF_SCHEDULE = [30, 60, 120, 300, 600]; // seconds: 30s, 1m, 2m, 5m, 1
 async function enqueueFailedSave(driverName, fields, attempt) {
   attempt = attempt || 0;
   var queue = (await chrome.storage.local.get('ag_retry_queue'))['ag_retry_queue'] || [];
-  // De-dupe: skip if same driver + same stage already queued
+  // De-dupe: skip if same rider + same stage already queued
   var isDupe = queue.some(function (q) { return q.driver === driverName && q.fields && q.fields.Stage === (fields && fields.Stage); });
   if (isDupe) { console.log('[AG] Skipping dupe queue item for ' + driverName); return; }
   queue.push({ driver: driverName, fields: fields, attempt: attempt, ts: Date.now(), lastTry: 0 });
@@ -80,7 +80,7 @@ async function processRetryQueue() {
 
     // Expire items older than 7 days (data is too stale to be useful)
     if (now - item.ts > QUEUE_EXPIRY_MS) {
-      console.warn('[AG] ⏰ Expired queue item for ' + item.driver + ' (queued ' + Math.round((now - item.ts) / 3600000) + 'h ago)');
+      console.warn('[AG] ⏰ Expired queue item for ' + item.rider + ' (queued ' + Math.round((now - item.ts) / 3600000) + 'h ago)');
       continue; // drop from queue
     }
 
@@ -94,15 +94,15 @@ async function processRetryQueue() {
 
     // Attempt the save
     try {
-      await saveDriverToAirtable(item.driver, item.fields);
-      console.log('[AG] ✅ Retry succeeded for ' + item.driver + ' (attempt ' + (item.attempt + 1) + ')');
+      await saveDriverToAirtable(item.rider, item.fields);
+      console.log('[AG] ✅ Retry succeeded for ' + item.rider + ' (attempt ' + (item.attempt + 1) + ')');
       anySuccess = true;
       // Don't add to remaining — it's done!
     } catch (err) {
       item.attempt = (item.attempt || 0) + 1;
       item.lastTry = now;
       remaining.push(item);
-      console.warn('[AG] ⚠️ Retry failed for ' + item.driver + ': ' + err.message + ' (attempt ' + item.attempt + ', next in ' + BACKOFF_SCHEDULE[Math.min(item.attempt, BACKOFF_SCHEDULE.length - 1)] + 's)');
+      console.warn('[AG] ⚠️ Retry failed for ' + item.rider + ': ' + err.message + ' (attempt ' + item.attempt + ', next in ' + BACKOFF_SCHEDULE[Math.min(item.attempt, BACKOFF_SCHEDULE.length - 1)] + 's)');
     }
   }
 
@@ -152,15 +152,7 @@ async function saveUrlToAirtable(driverName, fbUrl, igUrl) {
     'Authorization': 'Bearer ' + AIRTABLE_API_KEY,
     'Content-Type': 'application/json'
   };
-  var searchFormula = 'FIND(LOWER("' + driverName.replace(/"/g, '\\"') + '"), LOWER({Full Name}))';
-  var searchUrl = AIRTABLE_URL + '?filterByFormula=' + encodeURIComponent(searchFormula) + '&maxRecords=3';
-  var searchRes = await fetch(searchUrl, { headers: headers });
-  if (!searchRes.ok) throw new Error('Airtable search failed: ' + searchRes.status);
-  var searchData = await searchRes.json();
-  var recordId = null;
-  if (searchData.records && searchData.records.length > 0) {
-    recordId = searchData.records[0].id;
-  }
+
   var fields = {};
   // Clean URLs — strip query strings, hashes, and reject DM/thread URLs
   if (fbUrl) {
@@ -174,6 +166,41 @@ async function saveUrlToAirtable(driverName, fbUrl, igUrl) {
       fields['IG URL'] = igUrl;
   }
   fields['Last Activity'] = new Date().toISOString().split('T')[0];
+
+  var recordId = null;
+
+  // ── STEP 1: Search by URL first (most reliable — URL is unique) ──
+  var urlToSearch = fields['IG URL'] || fields['FB URL'];
+  var urlField = fields['IG URL'] ? 'IG URL' : 'FB URL';
+  if (urlToSearch) {
+    var urlClean = urlToSearch.split('?')[0].replace(/\/+$/, '');
+    var urlFormula = 'FIND("' + urlClean.replace(/"/g, '\\"') + '", {' + urlField + '})';
+    try {
+      var urlRes = await fetch(AIRTABLE_URL + '?filterByFormula=' + encodeURIComponent(urlFormula) + '&maxRecords=3', { headers: headers });
+      if (urlRes.ok) {
+        var urlData = await urlRes.json();
+        if (urlData.records && urlData.records.length > 0) {
+          recordId = urlData.records[0].id;
+          console.log('[AG] saveUrl: URL match found for "' + driverName + '" -> "' + (urlData.records[0].fields['Full Name'] || '?') + '"');
+        }
+      }
+    } catch (e) {
+      console.warn('[AG] saveUrl: URL search failed:', e.message);
+    }
+  }
+
+  // ── STEP 2: Fall back to name search ──
+  if (!recordId) {
+    var searchFormula = 'FIND(LOWER("' + driverName.replace(/"/g, '\\"') + '"), LOWER({Full Name}))';
+    var searchUrl = AIRTABLE_URL + '?filterByFormula=' + encodeURIComponent(searchFormula) + '&maxRecords=3';
+    var searchRes = await fetch(searchUrl, { headers: headers });
+    if (!searchRes.ok) throw new Error('Airtable search failed: ' + searchRes.status);
+    var searchData = await searchRes.json();
+    if (searchData.records && searchData.records.length > 0) {
+      recordId = searchData.records[0].id;
+    }
+  }
+
   if (recordId) {
     var updateRes = await fetch(AIRTABLE_URL + '/' + recordId, {
       method: 'PATCH', headers: headers,
@@ -189,6 +216,13 @@ async function saveUrlToAirtable(driverName, fbUrl, igUrl) {
     }
     return { success: true, method: 'airtable_direct', recordId: recordId };
   } else {
+    // ── GUARD: Don't create records with username-looking names ──
+    // If the name has no space, it's likely a social media handle (e.g. "ollysimpson45")
+    // and should NOT create a new record — the real rider record should be matched by URL above
+    if (!driverName.includes(' ')) {
+      console.warn('[AG] saveUrl: Refusing to create record with username-like name: "' + driverName + '"');
+      return { success: false, method: 'blocked_username', reason: 'Name looks like a social handle' };
+    }
     var np = driverName.trim().split(' ');
     var cf = { 'First Name': np[0] || driverName, 'Last Name': np.slice(1).join(' ') || '' };
     Object.assign(cf, fields);
@@ -251,6 +285,8 @@ function looksLikeUsername(name) {
   if (!n.includes(' ')) return true;
   if (/\d{2,}$/.test(n.replace(/\s/g, ''))) return true;
   if (n.includes('_')) return true;
+  // Reject notification/activity text scraped as names (e.g. "Clint messaged you")
+  if (/\b(messaged you|sent you|replied to|liked your|mentioned you|reacted to|is typing|is online|was active|shared a|tagged you|commented on|invited you|accepted your|poked you|search results?)\b/i.test(n)) return true;
   return false;
 }
 
@@ -495,7 +531,7 @@ async function findDriverRecord(driverName, fields, headers) {
 }
 
 // ══════════════════════════════════════════════
-// ██  MAIN: Save/update a driver in Airtable
+// ██  MAIN: Save/update a rider in Airtable
 // ══════════════════════════════════════════════
 async function saveDriverToAirtable(driverName, fields) {
   if (!AIRTABLE_URL || typeof AIRTABLE_API_KEY === 'undefined') {
@@ -506,7 +542,7 @@ async function saveDriverToAirtable(driverName, fields) {
     'Content-Type': 'application/json'
   };
 
-  // Find existing driver using identity resolution
+  // Find existing rider using identity resolution
   var result = await findDriverRecord(driverName, fields, headers);
   var searchData = result;
 
@@ -518,6 +554,32 @@ async function saveDriverToAirtable(driverName, fields) {
   for (var key in fields) {
     if (fields[key] !== null && fields[key] !== undefined && fields[key] !== '') {
       cleanFields[key] = fields[key];
+    }
+  }
+
+  // ── URL OWNERSHIP CHECK: Don't save a URL that belongs to a different rider ──
+  // This prevents the Jake Farnsworth / Hayden Nelson bug where visiting DMs
+  // picks up the wrong person's profile link and saves it to the current rider.
+  for (var urlField of ['IG URL', 'FB URL']) {
+    if (!cleanFields[urlField]) continue;
+    var checkUrl = cleanFields[urlField].split('?')[0].replace(/\/+$/, '');
+    try {
+      var checkFormula = 'FIND("' + checkUrl.replace(/"/g, '\\"') + '", {' + urlField + '})';
+      var checkData = await airtableFetch(checkFormula, headers, 5);
+      if (checkData.records && checkData.records.length > 0) {
+        // URL exists — check if it belongs to the SAME rider we're saving to
+        var matchedRecord = searchData.records && searchData.records.length > 0 ? searchData.records[0] : null;
+        var myRecordId = matchedRecord ? matchedRecord.id : null;
+        var wrongOwner = checkData.records.find(function (r) { return r.id !== myRecordId; });
+        if (wrongOwner) {
+          var ownerName = wrongOwner.fields['Full Name'] || wrongOwner.fields['First Name'] || 'unknown';
+          console.warn('[AG] ⚠️ URL CLASH: ' + urlField + ' "' + checkUrl + '" already belongs to "' + ownerName + '" (record ' + wrongOwner.id + ') — NOT saving this URL to "' + driverName + '"');
+          delete cleanFields[urlField];
+        }
+      }
+    } catch (e) {
+      console.warn('[AG] URL ownership check failed:', e.message);
+      // On error, still allow the save (don't block on check failure)
     }
   }
 
@@ -614,10 +676,10 @@ async function saveDriverToAirtable(driverName, fields) {
 // ══════════════════════════════════════════════
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.type === 'updateStage') {
-    var driver = message.driver, stage = message.stage;
-    var createDriver = message.createDriver, socialUrl = message.socialUrl, circuit = message.circuit;
-    if (!driver || !stage) {
-      sendResponse({ success: false, error: 'Missing driver or stage' });
+    var driver = message.rider, stage = message.stage;
+    var createRider = message.createRider, socialUrl = message.socialUrl, circuit = message.circuit;
+    if (!rider || !stage) {
+      sendResponse({ success: false, error: 'Missing rider or stage' });
       return true;
     }
     if (AIRTABLE_URL) {
@@ -628,8 +690,8 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
         'Replied': 'Date Replied', 'Link Sent': 'Date Link Sent',
         'Blueprint Link Sent': 'Date Link Sent', 'Race Weekend': 'Date Race Review',
         'Race Review Complete': 'Date Race Review', 'Blueprint Started': 'Date Blueprint Started',
-        'Registered': 'Date Blueprint Started', 'Day 1 Complete': 'Date Day 1 Assessment',
-        'Day 2 Complete': 'Date Day 2 Assessment', 'Strategy Call Booked': 'Date Strategy Call',
+        'Registered': 'Date Blueprint Started', 'Day 1 Complete': 'Date Day 1 Assessment ',
+        'Day 2 Complete': 'Date Day 2 Assessment ', 'Strategy Call Booked': 'Date Strategy Call',
         'Client': 'Date Sale Closed'
       };
       if (stageDateMap[stage]) fields[stageDateMap[stage]] = today;
@@ -638,17 +700,17 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
         else fields['FB URL'] = socialUrl.split('?')[0].split('#')[0];
       }
       if (circuit) fields['Championship'] = circuit;
-      saveDriverToAirtable(driver, fields).then(function (r) {
+      saveDriverToAirtable(rider, fields).then(function (r) {
         sendResponse(r);
       }).catch(function (err) {
         console.warn('[AG] Direct save failed:', err.message);
-        enqueueFailedSave(driver, fields);
+        enqueueFailedSave(rider, fields);
         sendResponse({ success: false, error: err.message });
       });
     } else {
       var params = new URLSearchParams();
-      params.set('driver', driver); params.set('set_stage', stage);
-      if (createDriver) params.set('create_driver', 'true');
+      params.set('driver', rider); params.set('set_stage', stage);
+      if (createRider) params.set('create_rider', 'true');
       if (socialUrl) params.set('social_url', socialUrl);
       if (circuit) params.set('circuit', circuit);
       saveViaExistingTab(params).then(function (ok) { sendResponse({ success: ok }); });
@@ -657,18 +719,18 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveConversation') {
-    var driver2 = message.driver, messages = message.messages;
-    if (!driver2 || !messages) {
-      sendResponse({ success: false, error: 'Missing driver or messages' });
+    var rider2 = message.rider, messages = message.messages;
+    if (!rider2 || !messages) {
+      sendResponse({ success: false, error: 'Missing rider or messages' });
       return true;
     }
     if (AIRTABLE_URL) {
-      saveDriverToAirtable(driver2, {}).then(function (r) { sendResponse(r); }).catch(function (err) {
+      saveDriverToAirtable(rider2, {}).then(function (r) { sendResponse(r); }).catch(function (err) {
         sendResponse({ success: false, error: err.message });
       });
     } else {
       var params2 = new URLSearchParams();
-      params2.set('driver', driver2); params2.set('save_messages', messages);
+      params2.set('driver', rider2); params2.set('save_messages', messages);
       if (message.platform) params2.set('msg_platform', message.platform);
       saveViaExistingTab(params2).then(function (ok) { sendResponse({ success: ok }); });
     }
@@ -676,11 +738,11 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveOutreach') {
-    var driver3 = message.driver, socialUrl3 = message.socialUrl;
+    var rider3 = message.rider, socialUrl3 = message.socialUrl;
     var msgText = message.message, template = message.template;
-    var createDriver3 = message.createDriver, circuit3 = message.circuit, championship3 = message.championship;
-    if (!driver3) {
-      sendResponse({ success: false, error: 'Missing driver' });
+    var createRider3 = message.createRider, circuit3 = message.circuit, championship3 = message.championship;
+    if (!rider3) {
+      sendResponse({ success: false, error: 'Missing rider' });
       return true;
     }
     if (AIRTABLE_URL) {
@@ -692,19 +754,19 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       }
       if (championship3) fields3['Championship'] = championship3;
       console.log('[AG] saveOutreach socialUrl:', socialUrl3 || '(empty)', 'fields:', JSON.stringify(fields3));
-      saveDriverToAirtable(driver3, fields3).then(function (r) {
+      saveDriverToAirtable(rider3, fields3).then(function (r) {
         sendResponse(r);
       }).catch(function (err) {
         console.warn('[AG] Direct outreach save failed:', err.message);
-        enqueueFailedSave(driver3, fields3);
+        enqueueFailedSave(rider3, fields3);
         sendResponse({ success: false, error: err.message });
       });
     } else {
       var params3 = new URLSearchParams();
-      params3.set('driver', driver3); params3.set('save_outreach', template || 'outreach');
+      params3.set('driver', rider3); params3.set('save_outreach', template || 'outreach');
       if (socialUrl3) params3.set('social_url', socialUrl3);
       if (message.platform) params3.set('platform', message.platform);
-      if (createDriver3) params3.set('create_driver', 'true');
+      if (createRider3) params3.set('create_rider', 'true');
       if (circuit3) params3.set('circuit', circuit3);
       if (championship3) params3.set('championship', championship3);
       if (msgText) {
@@ -717,18 +779,18 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveUrl') {
-    var driver4 = message.driver, fbUrl4 = message.fbUrl, igUrl4 = message.igUrl;
-    if (!driver4) {
+    var rider4 = message.rider, fbUrl4 = message.fbUrl, igUrl4 = message.igUrl;
+    if (!rider4) {
       sendResponse({ success: false, error: 'Missing driver name' });
       return true;
     }
     if (AIRTABLE_URL) {
-      saveUrlToAirtable(driver4, fbUrl4, igUrl4).then(function (result) {
+      saveUrlToAirtable(rider4, fbUrl4, igUrl4).then(function (result) {
         sendResponse(result);
       }).catch(function (err) {
         console.warn('[AG] Airtable direct save failed, falling back:', err.message);
         var params4 = new URLSearchParams();
-        params4.set('driver', driver4); params4.set('save_url', 'true');
+        params4.set('driver', rider4); params4.set('save_url', 'true');
         if (fbUrl4) params4.set('fb_url', fbUrl4);
         if (igUrl4) params4.set('ig_url', igUrl4);
         saveViaExistingTab(params4).then(function (ok) {
@@ -737,13 +799,110 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       });
     } else {
       var params5 = new URLSearchParams();
-      params5.set('driver', driver4); params5.set('save_url', 'true');
+      params5.set('driver', rider4); params5.set('save_url', 'true');
       if (fbUrl4) params5.set('fb_url', fbUrl4);
       if (igUrl4) params5.set('ig_url', igUrl4);
       saveViaExistingTab(params5).then(function (ok) {
         sendResponse({ success: ok, method: ok ? 'existing_tab' : 'failed' });
       });
     }
+    return true;
+  }
+
+  // ══════════════════════════════════════════════
+  // ██  FAST URL LOOKUP — check if rider exists by social URL
+  // ══════════════════════════════════════════════
+  if (message.type === 'lookupUrl') {
+    var lookupIgUrl = message.igUrl || '';
+    var lookupFbUrl = message.fbUrl || '';
+    if (!lookupIgUrl && !lookupFbUrl) {
+      sendResponse({ found: false, reason: 'no_url' });
+      return true;
+    }
+    if (!AIRTABLE_URL || typeof AIRTABLE_API_KEY === 'undefined') {
+      sendResponse({ found: false, reason: 'no_config' });
+      return true;
+    }
+    var headers = {
+      'Authorization': 'Bearer ' + AIRTABLE_API_KEY,
+      'Content-Type': 'application/json'
+    };
+
+    // Build search: try IG URL first, then FB URL
+    var searchUrl = lookupIgUrl || lookupFbUrl;
+    var searchField = lookupIgUrl ? 'IG URL' : 'FB URL';
+    // Strip trailing slashes and query params for flexible matching
+    var urlClean = searchUrl.split('?')[0].replace(/\/+$/, '');
+    var driverNameHint = (message.driverName || '').toLowerCase().trim();
+
+    var formula = 'FIND("' + urlClean.replace(/"/g, '\\"') + '", {' + searchField + '})';
+    var apiUrl = AIRTABLE_URL + '?filterByFormula=' + encodeURIComponent(formula) + '&maxRecords=10&fields%5B%5D=Full+Name&fields%5B%5D=First+Name&fields%5B%5D=Last+Name&fields%5B%5D=Stage&fields%5B%5D=Championship&fields%5B%5D=IG+URL&fields%5B%5D=FB+URL&fields%5B%5D=Last+Activity&fields%5B%5D=Date+Messaged';
+
+    fetch(apiUrl, { headers: headers })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.records && data.records.length > 0) {
+          // Build all matches
+          var allMatches = data.records.map(function (rec) {
+            var f = rec.fields || {};
+            return {
+              recordId: rec.id,
+              fullName: f['Full Name'] || ((f['First Name'] || '') + ' ' + (f['Last Name'] || '')).trim(),
+              firstName: f['First Name'] || '',
+              lastName: f['Last Name'] || '',
+              stage: f['Stage'] || 'Contact',
+              championship: f['Championship'] || '',
+              igUrl: f['IG URL'] || '',
+              fbUrl: f['FB URL'] || '',
+              lastActivity: f['Last Activity'] || '',
+              dateMessaged: f['Date Messaged'] || ''
+            };
+          });
+
+          // Pick best match: prefer the record whose name matches the rider hint
+          var bestMatch = allMatches[0];
+          if (driverNameHint && allMatches.length > 1) {
+            for (var i = 0; i < allMatches.length; i++) {
+              var mName = allMatches[i].fullName.toLowerCase().trim();
+              // Exact or partial name match
+              if (mName === driverNameHint ||
+                mName.includes(driverNameHint) ||
+                driverNameHint.includes(mName)) {
+                bestMatch = allMatches[i];
+                break;
+              }
+              // Token overlap: check if first+last name tokens match
+              var hintTokens = driverNameHint.replace(/[_.\-]/g, ' ').split(/\s+/);
+              var nameTokens = mName.replace(/[_.\-]/g, ' ').split(/\s+/);
+              var overlap = hintTokens.filter(function (t) { return t.length > 1 && nameTokens.indexOf(t) >= 0; });
+              if (overlap.length >= 2) {
+                bestMatch = allMatches[i];
+                break;
+              }
+            }
+          }
+
+          sendResponse({
+            found: true,
+            totalMatches: allMatches.length,
+            recordId: bestMatch.recordId,
+            fullName: bestMatch.fullName,
+            stage: bestMatch.stage,
+            championship: bestMatch.championship,
+            igUrl: bestMatch.igUrl,
+            fbUrl: bestMatch.fbUrl,
+            lastActivity: bestMatch.lastActivity,
+            dateMessaged: bestMatch.dateMessaged,
+            allMatches: allMatches
+          });
+        } else {
+          sendResponse({ found: false, reason: 'not_in_db' });
+        }
+      })
+      .catch(function (err) {
+        console.warn('[AG] URL lookup failed:', err.message);
+        sendResponse({ found: false, reason: 'error', error: err.message });
+      });
     return true;
   }
 });
@@ -754,7 +913,7 @@ chrome.runtime.onInstalled.addListener(function () {
   var configs = [
     { urlPatterns: ['*://www.facebook.com/*', '*://www.messenger.com/*', '*://messenger.com/*'], script: 'content-facebook.js' },
     { urlPatterns: ['*://www.instagram.com/*', '*://instagram.com/*'], script: 'content-instagram.js' },
-    { urlPatterns: ['*://driver-client-generator-76zuoc284ojnj4fycvqu8x.streamlit.app/*'], script: 'content-streamlit.js' }
+    { urlPatterns: ['*://driver-client-generator.streamlit.app/*'], script: 'content-streamlit.js' }
   ];
   chrome.tabs.query({}, function (tabs) {
     for (var i = 0; i < tabs.length; i++) {
