@@ -39,6 +39,171 @@ if not os.path.exists(DATA_DIR):
     # Fallback to current dir if sibling not found
     DATA_DIR = BASE_DIR
 
+# =====================================================================
+# 2026 RACE CALENDARS (Shared: Calendar view + Race Outreach)
+# =====================================================================
+RACE_CALENDARS = {
+    "BTCC": {
+        "color": "#1565C0",  # Blue
+        "rounds": [
+            {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
+            {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
+            {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-24", "end": "2026-05-26"},
+            {"round": "R4", "name": "Oulton Park", "start": "2026-06-06", "end": "2026-06-08"},
+            {"round": "R5", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
+            {"round": "R6", "name": "Knockhill", "start": "2026-08-08", "end": "2026-08-10"},
+            {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-22", "end": "2026-08-24"},
+            {"round": "R8", "name": "Croft", "start": "2026-09-05", "end": "2026-09-07"},
+            {"round": "R9", "name": "Silverstone", "start": "2026-09-26", "end": "2026-09-28"},
+            {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
+        ]
+    },
+    "British F4": {
+        "color": "#E65100",  # Deep Orange
+        "rounds": [
+            {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
+            {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
+            {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-23", "end": "2026-05-25"},
+            {"round": "R4", "name": "Silverstone (GP)", "start": "2026-05-30", "end": "2026-06-01"},
+            {"round": "R5", "name": "Zandvoort 🇳🇱", "start": "2026-07-11", "end": "2026-07-13"},
+            {"round": "R6", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
+            {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-15", "end": "2026-08-17"},
+            {"round": "R8", "name": "Croft", "start": "2026-08-29", "end": "2026-08-31"},
+            {"round": "R9", "name": "Silverstone (National)", "start": "2026-09-26", "end": "2026-09-28"},
+            {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
+        ]
+    },
+    "GB3": {
+        "color": "#6A1B9A",  # Purple
+        "rounds": [
+            {"round": "R1", "name": "Silverstone (GP) 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
+            {"round": "R2", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-05-30", "end": "2026-06-01"},
+            {"round": "R3", "name": "Hungaroring 🇭🇺", "start": "2026-07-04", "end": "2026-07-06"},
+            {"round": "R4", "name": "Red Bull Ring 🇦🇹", "start": "2026-07-11", "end": "2026-07-13"},
+            {"round": "R5", "name": "Silverstone (GP) 🇬🇧", "start": "2026-08-01", "end": "2026-08-03"},
+            {"round": "R6", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
+            {"round": "R7", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
+            {"round": "R8", "name": "Barcelona 🇪🇸", "start": "2026-11-07", "end": "2026-11-09"},
+        ]
+    },
+    "British GT": {
+        "color": "#00838F",  # Teal
+        "rounds": [
+            {"round": "R1", "name": "Silverstone 500 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
+            {"round": "R2", "name": "Oulton Park 🇬🇧", "start": "2026-05-23", "end": "2026-05-25"},
+            {"round": "R3", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-06-20", "end": "2026-06-22"},
+            {"round": "R4", "name": "Snetterton 300 🇬🇧", "start": "2026-08-15", "end": "2026-08-17"},
+            {"round": "R5", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
+            {"round": "R6", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
+        ]
+    },
+    "UAE F4": {
+        "color": "#F9A825",  # Amber/Gold
+        "rounds": [
+            {"round": "R1", "name": "Yas Marina 🇦🇪", "start": "2026-01-16", "end": "2026-01-19"},
+            {"round": "R2", "name": "Yas Marina 🇦🇪", "start": "2026-01-23", "end": "2026-01-26"},
+            {"round": "R3", "name": "Dubai Autodrome 🇦🇪", "start": "2026-01-30", "end": "2026-02-02"},
+            {"round": "R4", "name": "Lusail 🇶🇦", "start": "2026-02-11", "end": "2026-02-14"},
+        ]
+    },
+    "Porsche Cup GB": {
+        "color": "#C62828",  # Red
+        "rounds": [
+            {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-16", "end": "2026-04-20"},
+            {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-08", "end": "2026-05-11"},
+            {"round": "R3", "name": "Snetterton", "start": "2026-05-22", "end": "2026-05-25"},
+            {"round": "R4", "name": "Thruxton", "start": "2026-07-24", "end": "2026-07-27"},
+            {"round": "R5", "name": "Donington Park (GP)", "start": "2026-08-20", "end": "2026-08-24"},
+            {"round": "R6", "name": "Croft", "start": "2026-09-04", "end": "2026-09-07"},
+            {"round": "R7", "name": "Silverstone", "start": "2026-09-25", "end": "2026-09-28"},
+            {"round": "R8", "name": "Brands Hatch (GP)", "start": "2026-10-09", "end": "2026-10-12"},
+        ]
+    },
+    "Porsche Cup NA": {
+        "color": "#AD1457",  # Pink
+        "rounds": [
+            {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-18", "end": "2026-03-21"},
+            {"round": "R2", "name": "Long Beach 🇺🇸", "start": "2026-04-17", "end": "2026-04-20"},
+            {"round": "R3", "name": "Miami 🇺🇸", "start": "2026-05-01", "end": "2026-05-04"},
+            {"round": "R4", "name": "Watkins Glen 🇺🇸", "start": "2026-06-25", "end": "2026-06-28"},
+            {"round": "R5", "name": "Road America 🇺🇸", "start": "2026-07-30", "end": "2026-08-02"},
+            {"round": "R6", "name": "Indianapolis 🇺🇸", "start": "2026-09-17", "end": "2026-09-20"},
+            {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-30", "end": "2026-10-03"},
+            {"round": "R8", "name": "COTA 🇺🇸", "start": "2026-10-23", "end": "2026-10-26"},
+        ]
+    },
+    "Porsche Cup AU": {
+        "color": "#2E7D32",  # Green
+        "rounds": [
+            {"round": "R1", "name": "Melbourne (F1 GP) 🇦🇺", "start": "2026-03-05", "end": "2026-03-09"},
+            {"round": "R2", "name": "Hidden Valley, Darwin 🇦🇺", "start": "2026-06-19", "end": "2026-06-22"},
+            {"round": "R3", "name": "Queensland Raceway 🇦🇺", "start": "2026-08-21", "end": "2026-08-24"},
+            {"round": "R4", "name": "The Bend, SA 🇦🇺", "start": "2026-09-11", "end": "2026-09-14"},
+            {"round": "R5", "name": "Bathurst 1000 🇦🇺", "start": "2026-10-08", "end": "2026-10-12"},
+            {"round": "R6", "name": "Gold Coast 500 🇦🇺", "start": "2026-10-23", "end": "2026-10-26"},
+            {"round": "R7", "name": "Adelaide 🇦🇺", "start": "2026-12-03", "end": "2026-12-07"},
+        ]
+    },
+    "Porsche Cup NZ": {
+        "color": "#00695C",  # Dark Teal
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2026-01-09", "end": "2026-01-12"},
+            {"round": "R2", "name": "Manfeild 🇳🇿", "start": "2026-02-27", "end": "2026-03-02"},
+            {"round": "R3", "name": "Taupo 🇳🇿", "start": "2026-03-27", "end": "2026-03-29"},
+            {"round": "R4", "name": "Taupo (ANZAC) 🇳🇿", "start": "2026-04-24", "end": "2026-04-26"},
+        ]
+    },
+    "Porsche Sprint NA": {
+        "color": "#4527A0",  # Deep Purple
+        "rounds": [
+            {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-06", "end": "2026-03-09"},
+            {"round": "R2", "name": "Barber Motorsports Park 🇺🇸", "start": "2026-03-27", "end": "2026-03-30"},
+            {"round": "R3", "name": "Sonoma 🇺🇸", "start": "2026-04-10", "end": "2026-04-13"},
+            {"round": "R4", "name": "COTA 🇺🇸", "start": "2026-05-07", "end": "2026-05-10"},
+            {"round": "R5", "name": "VIR 🇺🇸", "start": "2026-06-19", "end": "2026-06-22"},
+            {"round": "R6", "name": "Road America 🇺🇸", "start": "2026-08-14", "end": "2026-08-17"},
+            {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-11", "end": "2026-09-14"},
+        ]
+    },
+    "DTM": {
+        "color": "#37474F",  # Dark Grey-Blue
+        "rounds": [
+            {"round": "R1", "name": "Red Bull Ring 🇦🇹", "start": "2026-04-24", "end": "2026-04-28"},
+            {"round": "R2", "name": "Lausitzring 🇩🇪", "start": "2026-06-19", "end": "2026-06-23"},
+            {"round": "R3", "name": "Norisring 🇩🇪", "start": "2026-07-03", "end": "2026-07-06"},
+            {"round": "R4", "name": "Oschersleben 🇩🇪", "start": "2026-07-24", "end": "2026-07-27"},
+            {"round": "R5", "name": "Nürburgring 🇩🇪", "start": "2026-08-14", "end": "2026-08-18"},
+            {"round": "R6", "name": "Sachsenring 🇩🇪", "start": "2026-09-11", "end": "2026-09-14"},
+            {"round": "R7", "name": "Zandvoort 🇳🇱", "start": "2026-09-25", "end": "2026-09-28"},
+            {"round": "R8", "name": "Hockenheimring 🇩🇪", "start": "2026-10-09", "end": "2026-10-12"},
+        ]
+    },
+}
+
+
+def _get_last_finished_round(series_name, today=None):
+    """Return the most recently finished round for a championship, or None.
+
+    Returns (round_dict, days_ago) where days_ago is how many days since the
+    round ended.  Only returns rounds that ended within the last 14 days so
+    the label stays fresh.
+    """
+    if today is None:
+        today = datetime.now().date()
+    data = RACE_CALENDARS.get(series_name)
+    if not data:
+        return None
+    best = None
+    for rd in data["rounds"]:
+        end = datetime.strptime(rd["end"], "%Y-%m-%d").date()
+        if end <= today:
+            days_ago = (today - end).days
+            if days_ago <= 14:
+                if best is None or days_ago < best[1]:
+                    best = (rd, days_ago)
+    return best
+
+
 # --- DATA LOADING ---
 # --- DATA LOADING ---
 # --- DATA LOADING ---
@@ -787,7 +952,36 @@ def render_race_outreach(dashboard):
         st.session_state.saved_championships_loaded = True
 
     session_added = st.session_state.get('session_added_championships', [])
-    saved_champs = sorted(list(set(session_added)))
+    # Merge calendar championship names so every tracked series appears
+    _calendar_champs = list(RACE_CALENDARS.keys())
+    saved_champs = sorted(list(set(session_added + _calendar_champs)))
+
+    # Build smart labels — championships with a recently finished round get 🔥
+    _champ_labels = {}
+    _recently_finished = []
+    _today = datetime.now().date()
+    for _cname in saved_champs:
+        _finished = _get_last_finished_round(_cname, _today)
+        if _finished:
+            _rd, _days = _finished
+            if _days == 0:
+                _tag = f"🔥 {_cname}  ←  {_rd['name']} (today!)"
+            elif _days == 1:
+                _tag = f"🔥 {_cname}  ←  {_rd['name']} (yesterday)"
+            elif _days <= 3:
+                _tag = f"🔥 {_cname}  ←  {_rd['name']} ({_days}d ago)"
+            else:
+                _tag = f"📅 {_cname}  ←  {_rd['name']} ({_days}d ago)"
+            _champ_labels[_cname] = _tag
+            _recently_finished.append((_cname, _days))
+        else:
+            _champ_labels[_cname] = _cname
+    # Sort: recently finished first (freshest at top), then alphabetical
+    _recently_finished.sort(key=lambda x: x[1])
+    _recent_names = [n for n, _ in _recently_finished]
+    _rest_names = [n for n in saved_champs if n not in _recent_names]
+    saved_champs = _recent_names + _rest_names
+
 
     # --- Helper: persist championships to Airtable + file (best-effort) ---
     def _persist_championships():
@@ -869,14 +1063,29 @@ def render_race_outreach(dashboard):
         if curr in opts:
             idx = opts.index(curr)
 
+        def _format_champ(val):
+            if val == "➕ Add New...":
+                return val
+            return _champ_labels.get(val, val)
+
         selected_champ = st.selectbox(
-            "🏆 Target Champ",
+            "🏆 Championship",
             options=opts,
             index=idx,
+            format_func=_format_champ,
             key="champ_select_box",
             on_change=on_champ_select,
-            help="Select a championship or add a new one."
+            help="Championships from your calendar appear here. 🔥 = round finished recently."
         )
+
+        # Auto-fill circuit when a calendar championship with a recently finished round is selected
+        if selected_champ and selected_champ != "➕ Add New...":
+            _sel_finished = _get_last_finished_round(selected_champ, _today)
+            if _sel_finished:
+                _sel_rd, _ = _sel_finished
+                _circuit_name = _sel_rd['name'].split('🇬🇧')[0].split('🇦🇪')[0].split('🇶🇦')[0].split('🇳🇿')[0].split('🇦🇹')[0].split('🇩🇪')[0].split('🇧🇪')[0].split('🇭🇺')[0].split('🇪🇸')[0].split('🇺🇸')[0].split('🇳🇱')[0].split('🇦🇺')[0].strip()
+                if not st.session_state.get('event_name_input'):
+                    st.session_state['event_name_input'] = _circuit_name
 
         if selected_champ == "➕ Add New...":
             st.text_input(
@@ -950,7 +1159,7 @@ def render_race_outreach(dashboard):
         )
 
     # 2. Input Data
-    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing"], key="race_input_method", horizontal=True)
+    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing", "🇺🇸 Import from IMSA"], key="race_input_method", horizontal=True)
 
     raw_results_list = []
     _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
@@ -1447,6 +1656,177 @@ def render_race_outreach(dashboard):
                 elif _tsl_event_id:
                     st.warning("No sessions found for this event.")
 
+    elif input_method == "🇺🇸 Import from IMSA":
+        try:
+            from imsa_client import IMSAClient
+            _imsa_import_ok = True
+        except ImportError as _imsa_err:
+            st.error(f"IMSA client not available: {_imsa_err}")
+            _imsa_import_ok = False
+
+        if _imsa_import_ok:
+            st.caption("IMSA covers: **Porsche Carrera Cup NA** · **IMSA WeatherTech** · **Mazda MX-5 Cup** · Free JSON results from [results.imsa.com](https://results.imsa.com)")
+
+            _imsa_mode = st.radio(
+                "Browse by",
+                ["Event URL", "Browse 2026 Events"],
+                key="imsa_browse_mode",
+                horizontal=True
+            )
+
+            _imsa_client = IMSAClient()
+
+            if _imsa_mode == "Event URL":
+                _imsa_url = st.text_input(
+                    "IMSA Event URL or Path",
+                    placeholder="https://imsa.results.alkamelcloud.com/Results/25_2025/06_Sebring International Raceway/",
+                    help="Paste any IMSA results event URL from results.imsa.com or imsa.results.alkamelcloud.com",
+                    key="imsa_url_input"
+                )
+                _imsa_event_path = IMSAClient.extract_event_path(_imsa_url) if _imsa_url else None
+
+            else:  # Browse events
+                _imsa_year = st.selectbox("Year", [2026, 2025], key="imsa_year_select")
+                _imsa_events_key = f"imsa_events_{_imsa_year}"
+                if _imsa_events_key not in st.session_state:
+                    with st.spinner(f"Loading {_imsa_year} IMSA events..."):
+                        st.session_state[_imsa_events_key] = _imsa_client.list_events(_imsa_year)
+
+                _imsa_events = st.session_state[_imsa_events_key]
+                if _imsa_events:
+                    _imsa_sel_event = st.selectbox(
+                        "Event",
+                        options=range(len(_imsa_events)),
+                        format_func=lambda i: f"{_imsa_events[i]['index']}. {_imsa_events[i]['name']}",
+                        key="imsa_event_select"
+                    )
+                    _imsa_event_path = _imsa_events[_imsa_sel_event]['path'] if _imsa_sel_event is not None else None
+                else:
+                    st.warning(f"No events found for {_imsa_year}")
+                    _imsa_event_path = None
+
+            if _imsa_event_path:
+                # List series for the selected event
+                _imsa_series_key = f"imsa_series_{_imsa_event_path}"
+                if _imsa_series_key not in st.session_state:
+                    with st.spinner("Loading series..."):
+                        st.session_state[_imsa_series_key] = _imsa_client.list_series(_imsa_event_path)
+
+                _imsa_series = st.session_state[_imsa_series_key]
+
+                if _imsa_series:
+                    _imsa_sel_series = st.multiselect(
+                        "📊 Championships to import",
+                        options=range(len(_imsa_series)),
+                        format_func=lambda i: _imsa_series[i]['name'],
+                        default=[i for i, s in enumerate(_imsa_series) if 'porsche' in s['name'].lower()],
+                        key="imsa_series_select"
+                    )
+
+                    if _imsa_sel_series:
+                        _imsa_series_filter = [_imsa_series[i]['name'] for i in _imsa_sel_series]
+
+                        # Load sessions for selected series
+                        _imsa_all_sessions = []
+                        _imsa_sessions_cache_key = f"imsa_sessions_{_imsa_event_path}_{'_'.join(sorted(_imsa_series_filter))}"
+                        if _imsa_sessions_cache_key not in st.session_state:
+                            with st.spinner("Loading sessions..."):
+                                for _sf in _imsa_series_filter:
+                                    _sf_matches = [s for s in _imsa_series if s['name'] == _sf]
+                                    if _sf_matches:
+                                        _sf_sessions = _imsa_client.list_sessions(_sf_matches[0]['path'])
+                                        for _ss in _sf_sessions:
+                                            _ss['series_name'] = _sf
+                                        _imsa_all_sessions.extend(_sf_sessions)
+                                st.session_state[_imsa_sessions_cache_key] = _imsa_all_sessions
+                        _imsa_all_sessions = st.session_state[_imsa_sessions_cache_key]
+
+                        if _imsa_all_sessions:
+                            _imsa_race_sessions = [s for s in _imsa_all_sessions if s['type'] == 'race']
+                            _imsa_qual_sessions = [s for s in _imsa_all_sessions if s['type'] == 'qualify']
+
+                            st.caption(f"Found {len(_imsa_race_sessions)} races, {len(_imsa_qual_sessions)} qualifying sessions")
+
+                            _imsa_selected_paths = []
+
+                            if _imsa_race_sessions:
+                                _imsa_sel_races = st.multiselect(
+                                    "🏁 Race Sessions",
+                                    options=[s['path'] for s in _imsa_race_sessions],
+                                    format_func=lambda x: next(
+                                        (f"{s.get('series_name', '')[:25]} — {s['name']}" for s in _imsa_race_sessions if s['path'] == x),
+                                        x
+                                    ),
+                                    default=[s['path'] for s in _imsa_race_sessions],
+                                    key="imsa_race_select"
+                                )
+                                _imsa_selected_paths.extend(_imsa_sel_races)
+
+                            if _imsa_qual_sessions:
+                                _imsa_sel_quals = st.multiselect(
+                                    "⏱️ Qualifying Sessions",
+                                    options=[s['path'] for s in _imsa_qual_sessions],
+                                    format_func=lambda x: next(
+                                        (f"{s.get('series_name', '')[:25]} — {s['name']}" for s in _imsa_qual_sessions if s['path'] == x),
+                                        x
+                                    ),
+                                    default=[],
+                                    key="imsa_qual_select"
+                                )
+                                _imsa_selected_paths.extend(_imsa_sel_quals)
+
+                            if _imsa_selected_paths:
+                                _imsa_results_key = f"imsa_results_{_imsa_event_path}_{'_'.join(sorted(_imsa_selected_paths)[:3])}"
+                                if _imsa_results_key not in st.session_state:
+                                    with st.spinner(f"Fetching {len(_imsa_selected_paths)} IMSA result files..."):
+                                        _imsa_event, _imsa_names, _imsa_driver_map = _imsa_client.extract_driver_results(
+                                            _imsa_event_path,
+                                            selected_sessions=_imsa_selected_paths,
+                                            series_filter=_imsa_series_filter
+                                        )
+                                        st.session_state[_imsa_results_key] = (_imsa_event, _imsa_names, _imsa_driver_map)
+
+                                _imsa_event, _imsa_names, _imsa_driver_map = st.session_state[_imsa_results_key]
+                                raw_results_list = _imsa_names
+                                _speedhive_driver_results = _imsa_driver_map
+                                _speedhive_event = _imsa_event
+                                st.session_state['uploaded_timing_names'] = _imsa_names
+                                st.success(f"✅ {len(_imsa_names)} drivers ready to analyze from IMSA!")
+
+                                if _imsa_event.get('name'):
+                                    st.info(f"**{_imsa_event['name']}**")
+
+                                # Class filter
+                                _imsa_class_counts = {}
+                                for _rname, _rdata in _imsa_driver_map.items():
+                                    _classes = set()
+                                    for _sd in _rdata:
+                                        _rc = _sd.get('result_class', '').strip()
+                                        if _rc:
+                                            _classes.add(_rc)
+                                    for _c in _classes:
+                                        _imsa_class_counts[_c] = _imsa_class_counts.get(_c, 0) + 1
+                                if _imsa_class_counts:
+                                    _imsa_class_parts = [f"**{cls}** ({cnt})" for cls, cnt in sorted(_imsa_class_counts.items(), key=lambda x: -x[1])]
+                                    st.caption("📋 Categories: " + " · ".join(_imsa_class_parts))
+
+                                    _imsa_class_options = ["All Classes"] + sorted(_imsa_class_counts.keys(), key=lambda x: _imsa_class_counts[x], reverse=True)
+                                    _imsa_selected_class = st.selectbox(
+                                        "🏷️ Filter by class",
+                                        options=_imsa_class_options,
+                                        key="imsa_class_filter",
+                                        help="Work through one class at a time (Pro, Pro-Am, Masters)"
+                                    )
+
+                                    if _imsa_selected_class and _imsa_selected_class != "All Classes":
+                                        _imsa_filtered = [n for n in _imsa_names if any(
+                                            _sd.get('result_class', '').strip() == _imsa_selected_class
+                                            for _sd in _imsa_driver_map.get(n, [])
+                                        )]
+                                        raw_results_list = _imsa_filtered
+                                        st.session_state['uploaded_timing_names'] = _imsa_filtered
+                                        st.info(f"🏷️ Showing **{len(_imsa_filtered)}** drivers in **{_imsa_selected_class}**")
+
     else: # Paste Text
         st.caption("Paste driver names from any timing sheet — one name per line.")
         with st.expander("📋 Where to find results for each championship", expanded=False):
@@ -1459,10 +1839,10 @@ def render_race_outreach(dashboard):
 | **British GT** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
 | **Porsche Cup GB** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
 | **UAE F4** | [formulamideast.com](https://formulamideast.com) or [fg91motorsport.com](https://fg91motorsport.com) |
-| **Porsche Cup NA** | [porschecarreracup.us](https://porschecarreracup.us) or [imsa.com](https://imsa.com/results) |
-| **Porsche Cup AU** | [natsoft.com.au](https://www.natsoft.com.au/roadsport) or [carreracup.com.au](https://carreracup.com.au) |
+| **Porsche Cup NA** | [results.imsa.com](https://results.imsa.com) (or use IMSA tab) |
+| **Porsche Cup AU** | [computime.com.au](https://computime.com.au) (or use Computime tab) |
 | **Porsche Cup NZ** | [motorsport.org.nz](https://motorsport.org.nz) or [porsche.org.nz](https://porsche.org.nz) |
-| **Porsche Sprint NA** | [porschesprint.com](https://porschesprint.com) or [imsa.com](https://imsa.com/results) |
+| **Porsche Sprint NA** | [porschesprint.com](https://porschesprint.com) |
 | **DTM** | [dtm.com/results](https://www.dtm.com/results) or [adac-motorsport.de](https://www.adac-motorsport.de) |
 
 💡 **Tip:** Download or view the classification/results PDF, copy all driver names, and paste below.
@@ -3946,146 +4326,8 @@ def render_calendar_view(dashboard):
         })
         seen_drivers.add(driver_id)
 
-    # ── 3. 2026 Race Calendars ──
-    _RACE_CALENDARS = {
-        "BTCC": {
-            "color": "#1565C0",  # Blue
-            "rounds": [
-                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
-                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
-                {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-24", "end": "2026-05-26"},
-                {"round": "R4", "name": "Oulton Park", "start": "2026-06-06", "end": "2026-06-08"},
-                {"round": "R5", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
-                {"round": "R6", "name": "Knockhill", "start": "2026-08-08", "end": "2026-08-10"},
-                {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-22", "end": "2026-08-24"},
-                {"round": "R8", "name": "Croft", "start": "2026-09-05", "end": "2026-09-07"},
-                {"round": "R9", "name": "Silverstone", "start": "2026-09-26", "end": "2026-09-28"},
-                {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
-            ]
-        },
-        "British F4": {
-            "color": "#E65100",  # Deep Orange
-            "rounds": [
-                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-18", "end": "2026-04-20"},
-                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-09", "end": "2026-05-11"},
-                {"round": "R3", "name": "Snetterton (300)", "start": "2026-05-23", "end": "2026-05-25"},
-                {"round": "R4", "name": "Silverstone (GP)", "start": "2026-05-30", "end": "2026-06-01"},
-                {"round": "R5", "name": "Zandvoort 🇳🇱", "start": "2026-07-11", "end": "2026-07-13"},
-                {"round": "R6", "name": "Thruxton", "start": "2026-07-25", "end": "2026-07-27"},
-                {"round": "R7", "name": "Donington Park (GP)", "start": "2026-08-15", "end": "2026-08-17"},
-                {"round": "R8", "name": "Croft", "start": "2026-08-29", "end": "2026-08-31"},
-                {"round": "R9", "name": "Silverstone (National)", "start": "2026-09-26", "end": "2026-09-28"},
-                {"round": "R10", "name": "Brands Hatch (GP)", "start": "2026-10-10", "end": "2026-10-12"},
-            ]
-        },
-        "GB3": {
-            "color": "#6A1B9A",  # Purple
-            "rounds": [
-                {"round": "R1", "name": "Silverstone (GP) 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
-                {"round": "R2", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-05-30", "end": "2026-06-01"},
-                {"round": "R3", "name": "Hungaroring 🇭🇺", "start": "2026-07-04", "end": "2026-07-06"},
-                {"round": "R4", "name": "Red Bull Ring 🇦🇹", "start": "2026-07-11", "end": "2026-07-13"},
-                {"round": "R5", "name": "Silverstone (GP) 🇬🇧", "start": "2026-08-01", "end": "2026-08-03"},
-                {"round": "R6", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
-                {"round": "R7", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
-                {"round": "R8", "name": "Barcelona 🇪🇸", "start": "2026-11-07", "end": "2026-11-09"},
-            ]
-        },
-        "British GT": {
-            "color": "#00838F",  # Teal
-            "rounds": [
-                {"round": "R1", "name": "Silverstone 500 🇬🇧", "start": "2026-04-25", "end": "2026-04-27"},
-                {"round": "R2", "name": "Oulton Park 🇬🇧", "start": "2026-05-23", "end": "2026-05-25"},
-                {"round": "R3", "name": "Spa-Francorchamps 🇧🇪", "start": "2026-06-20", "end": "2026-06-22"},
-                {"round": "R4", "name": "Snetterton 300 🇬🇧", "start": "2026-08-15", "end": "2026-08-17"},
-                {"round": "R5", "name": "Donington Park 🇬🇧", "start": "2026-09-05", "end": "2026-09-07"},
-                {"round": "R6", "name": "Brands Hatch (GP) 🇬🇧", "start": "2026-09-26", "end": "2026-09-28"},
-            ]
-        },
-        "UAE F4": {
-            "color": "#F9A825",  # Amber/Gold
-            "rounds": [
-                {"round": "R1", "name": "Yas Marina 🇦🇪", "start": "2026-01-16", "end": "2026-01-19"},
-                {"round": "R2", "name": "Yas Marina 🇦🇪", "start": "2026-01-23", "end": "2026-01-26"},
-                {"round": "R3", "name": "Dubai Autodrome 🇦🇪", "start": "2026-01-30", "end": "2026-02-02"},
-                {"round": "R4", "name": "Lusail 🇶🇦", "start": "2026-02-11", "end": "2026-02-14"},
-            ]
-        },
-        "Porsche Cup GB": {
-            "color": "#C62828",  # Red
-            "rounds": [
-                {"round": "R1", "name": "Donington Park (National)", "start": "2026-04-16", "end": "2026-04-20"},
-                {"round": "R2", "name": "Brands Hatch (Indy)", "start": "2026-05-08", "end": "2026-05-11"},
-                {"round": "R3", "name": "Snetterton", "start": "2026-05-22", "end": "2026-05-25"},
-                {"round": "R4", "name": "Thruxton", "start": "2026-07-24", "end": "2026-07-27"},
-                {"round": "R5", "name": "Donington Park (GP)", "start": "2026-08-20", "end": "2026-08-24"},
-                {"round": "R6", "name": "Croft", "start": "2026-09-04", "end": "2026-09-07"},
-                {"round": "R7", "name": "Silverstone", "start": "2026-09-25", "end": "2026-09-28"},
-                {"round": "R8", "name": "Brands Hatch (GP)", "start": "2026-10-09", "end": "2026-10-12"},
-            ]
-        },
-        "Porsche Cup NA": {
-            "color": "#AD1457",  # Pink
-            "rounds": [
-                {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-18", "end": "2026-03-21"},
-                {"round": "R2", "name": "Long Beach 🇺🇸", "start": "2026-04-17", "end": "2026-04-20"},
-                {"round": "R3", "name": "Miami 🇺🇸", "start": "2026-05-01", "end": "2026-05-04"},
-                {"round": "R4", "name": "Watkins Glen 🇺🇸", "start": "2026-06-25", "end": "2026-06-28"},
-                {"round": "R5", "name": "Road America 🇺🇸", "start": "2026-07-30", "end": "2026-08-02"},
-                {"round": "R6", "name": "Indianapolis 🇺🇸", "start": "2026-09-17", "end": "2026-09-20"},
-                {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-30", "end": "2026-10-03"},
-                {"round": "R8", "name": "COTA 🇺🇸", "start": "2026-10-23", "end": "2026-10-26"},
-            ]
-        },
-        "Porsche Cup AU": {
-            "color": "#2E7D32",  # Green
-            "rounds": [
-                {"round": "R1", "name": "Melbourne (F1 GP) 🇦🇺", "start": "2026-03-05", "end": "2026-03-09"},
-                {"round": "R2", "name": "Hidden Valley, Darwin 🇦🇺", "start": "2026-06-19", "end": "2026-06-22"},
-                {"round": "R3", "name": "Queensland Raceway 🇦🇺", "start": "2026-08-21", "end": "2026-08-24"},
-                {"round": "R4", "name": "The Bend, SA 🇦🇺", "start": "2026-09-11", "end": "2026-09-14"},
-                {"round": "R5", "name": "Bathurst 1000 🇦🇺", "start": "2026-10-08", "end": "2026-10-12"},
-                {"round": "R6", "name": "Gold Coast 500 🇦🇺", "start": "2026-10-23", "end": "2026-10-26"},
-                {"round": "R7", "name": "Adelaide 🇦🇺", "start": "2026-12-03", "end": "2026-12-07"},
-            ]
-        },
-        "Porsche Cup NZ": {
-            "color": "#00695C",  # Dark Teal
-            "rounds": [
-                {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2026-01-09", "end": "2026-01-12"},
-                {"round": "R2", "name": "Manfeild 🇳🇿", "start": "2026-02-27", "end": "2026-03-02"},
-                {"round": "R3", "name": "Taupo 🇳🇿", "start": "2026-03-27", "end": "2026-03-29"},
-                {"round": "R4", "name": "Taupo (ANZAC) 🇳🇿", "start": "2026-04-24", "end": "2026-04-26"},
-            ]
-        },
-        "Porsche Sprint NA": {
-            "color": "#4527A0",  # Deep Purple
-            "rounds": [
-                {"round": "R1", "name": "Sebring 🇺🇸", "start": "2026-03-06", "end": "2026-03-09"},
-                {"round": "R2", "name": "Barber Motorsports Park 🇺🇸", "start": "2026-03-27", "end": "2026-03-30"},
-                {"round": "R3", "name": "Sonoma 🇺🇸", "start": "2026-04-10", "end": "2026-04-13"},
-                {"round": "R4", "name": "COTA 🇺🇸", "start": "2026-05-07", "end": "2026-05-10"},
-                {"round": "R5", "name": "VIR 🇺🇸", "start": "2026-06-19", "end": "2026-06-22"},
-                {"round": "R6", "name": "Road America 🇺🇸", "start": "2026-08-14", "end": "2026-08-17"},
-                {"round": "R7", "name": "Road Atlanta 🇺🇸", "start": "2026-09-11", "end": "2026-09-14"},
-            ]
-        },
-        "DTM": {
-            "color": "#37474F",  # Dark Grey-Blue
-            "rounds": [
-                {"round": "R1", "name": "Red Bull Ring 🇦🇹", "start": "2026-04-24", "end": "2026-04-28"},
-                {"round": "R2", "name": "Lausitzring 🇩🇪", "start": "2026-06-19", "end": "2026-06-23"},
-                {"round": "R3", "name": "Norisring 🇩🇪", "start": "2026-07-03", "end": "2026-07-06"},
-                {"round": "R4", "name": "Oschersleben 🇩🇪", "start": "2026-07-24", "end": "2026-07-27"},
-                {"round": "R5", "name": "Nürburgring 🇩🇪", "start": "2026-08-14", "end": "2026-08-18"},
-                {"round": "R6", "name": "Sachsenring 🇩🇪", "start": "2026-09-11", "end": "2026-09-14"},
-                {"round": "R7", "name": "Zandvoort 🇳🇱", "start": "2026-09-25", "end": "2026-09-28"},
-                {"round": "R8", "name": "Hockenheimring 🇩🇪", "start": "2026-10-09", "end": "2026-10-12"},
-            ]
-        },
-    }
-
-    for _series_name, _series_data in _RACE_CALENDARS.items():
+    # ── 3. 2026 Race Calendars (shared module-level constant) ──
+    for _series_name, _series_data in RACE_CALENDARS.items():
         _color = _series_data["color"]
         for _rd in _series_data["rounds"]:
             events.append({
