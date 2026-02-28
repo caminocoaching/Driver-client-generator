@@ -1034,8 +1034,20 @@ def render_race_outreach(dashboard):
             if _last:
                 _rd_info, _d_ago = _last
                 _circ = _strip_flags(_rd_info['name'])
-                st.session_state['event_name_input'] = _circ
-                st.toast(f"🏁 {val} — last race: {_circ} ({_d_ago}d ago)")
+                # Add event dates so messaging can reference the specific weekend
+                # e.g. "Lusail (11-14 Feb)" or "Donington Park (18-20 Apr)"
+                try:
+                    _start_dt = datetime.strptime(_rd_info['start'], "%Y-%m-%d")
+                    _end_dt = datetime.strptime(_rd_info['end'], "%Y-%m-%d")
+                    if _start_dt.month == _end_dt.month:
+                        _date_str = f"{_start_dt.day}-{_end_dt.day} {_start_dt.strftime('%b')}"
+                    else:
+                        _date_str = f"{_start_dt.day} {_start_dt.strftime('%b')}-{_end_dt.day} {_end_dt.strftime('%b')}"
+                    _circ_with_date = f"{_circ} ({_date_str})"
+                except Exception:
+                    _circ_with_date = _circ
+                st.session_state['event_name_input'] = _circ_with_date
+                st.toast(f"🏁 {val} — last race: {_circ_with_date}")
             else:
                 st.toast(f"Championship set to: {val}")
 
