@@ -185,8 +185,8 @@ def _get_last_finished_round(series_name, today=None):
     """Return the most recently finished round for a championship, or None.
 
     Returns (round_dict, days_ago) where days_ago is how many days since the
-    round ended.  Only returns rounds that ended within the last 14 days so
-    the label stays fresh.
+    round ended.  Always returns the most recent completed round — no time
+    limit, so on the Monday after a race weekend you'll always get the right one.
     """
     if today is None:
         today = datetime.now().date()
@@ -198,9 +198,8 @@ def _get_last_finished_round(series_name, today=None):
         end = datetime.strptime(rd["end"], "%Y-%m-%d").date()
         if end <= today:
             days_ago = (today - end).days
-            if days_ago <= 14:
-                if best is None or days_ago < best[1]:
-                    best = (rd, days_ago)
+            if best is None or days_ago < best[1]:
+                best = (rd, days_ago)
     return best
 
 
@@ -968,7 +967,7 @@ def render_race_outreach(dashboard):
                 _tag = f"🔥 {_cname}  ←  {_rd['name']} (today!)"
             elif _days == 1:
                 _tag = f"🔥 {_cname}  ←  {_rd['name']} (yesterday)"
-            elif _days <= 3:
+            elif _days <= 7:
                 _tag = f"🔥 {_cname}  ←  {_rd['name']} ({_days}d ago)"
             else:
                 _tag = f"📅 {_cname}  ←  {_rd['name']} ({_days}d ago)"
@@ -1021,11 +1020,24 @@ def render_race_outreach(dashboard):
         if st.session_state.circuit_select:
             st.session_state.event_name_input = st.session_state.circuit_select
 
+    def _strip_flags(name):
+        """Remove country flag emoji from circuit name."""
+        import re as _re_flags
+        return _re_flags.sub(r'[\U0001F1E0-\U0001F1FF]{2}', '', name).strip()
+
     def on_champ_select():
         val = st.session_state.champ_select_box
         if val and val != "➕ Add New...":
             st.session_state.global_championship = val
-            st.toast(f"Championship set to: {val}")
+            # Auto-fill circuit from the last completed round in the calendar
+            _last = _get_last_finished_round(val)
+            if _last:
+                _rd_info, _d_ago = _last
+                _circ = _strip_flags(_rd_info['name'])
+                st.session_state['event_name_input'] = _circ
+                st.toast(f"🏁 {val} — last race: {_circ} ({_d_ago}d ago)")
+            else:
+                st.toast(f"Championship set to: {val}")
 
     def save_new_champ_callback():
         val = st.session_state.new_champ_entry_seamless
@@ -1078,14 +1090,7 @@ def render_race_outreach(dashboard):
             help="Championships from your calendar appear here. 🔥 = round finished recently."
         )
 
-        # Auto-fill circuit when a calendar championship with a recently finished round is selected
-        if selected_champ and selected_champ != "➕ Add New...":
-            _sel_finished = _get_last_finished_round(selected_champ, _today)
-            if _sel_finished:
-                _sel_rd, _ = _sel_finished
-                _circuit_name = _sel_rd['name'].split('🇬🇧')[0].split('🇦🇪')[0].split('🇶🇦')[0].split('🇳🇿')[0].split('🇦🇹')[0].split('🇩🇪')[0].split('🇧🇪')[0].split('🇭🇺')[0].split('🇪🇸')[0].split('🇺🇸')[0].split('🇳🇱')[0].split('🇦🇺')[0].strip()
-                if not st.session_state.get('event_name_input'):
-                    st.session_state['event_name_input'] = _circuit_name
+        # Auto-fill circuit from last completed round (handled by on_champ_select callback)
 
         if selected_champ == "➕ Add New...":
             st.text_input(
