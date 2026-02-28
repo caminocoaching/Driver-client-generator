@@ -1173,7 +1173,11 @@ def render_race_outreach(dashboard):
 
             # Use stored index if available (user manually changed it)
             _stored_idx = st.session_state.get('_outreach_round_idx', _default_idx)
-            if _stored_idx >= len(_round_opts):
+            try:
+                _stored_idx = int(_stored_idx)
+            except (TypeError, ValueError):
+                _stored_idx = _default_idx
+            if _stored_idx < 0 or _stored_idx >= len(_round_opts):
                 _stored_idx = _default_idx
 
             def _on_round_change():
