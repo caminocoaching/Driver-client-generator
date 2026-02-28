@@ -1220,21 +1220,36 @@ def render_race_outreach(dashboard):
         )
 
     # =====================================================================
-    # STEP 3: DATA SOURCE — auto-select based on championship
+    # STEP 3: DATA SOURCE — automatic based on championship
     # =====================================================================
     _auto_source = _CHAMP_TIMING_SOURCE.get(selected_champ, "speedhive") if selected_champ != "➕ Add New..." else "paste"
 
-    # Map auto source to radio index
-    _source_options = ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing", "🇺🇸 Import from IMSA"]
-    _source_map = {"paste": 0, "speedhive": 1, "computime": 2, "tsl": 3, "imsa": 4}
+    _source_to_method = {
+        "tsl": "🇬🇧 Import from TSL Timing",
+        "imsa": "🇺🇸 Import from IMSA",
+        "computime": "🕐 Import from Computime",
+        "speedhive": "🌐 Import from Speedhive",
+        "paste": "Paste Text",
+    }
 
-    # Auto-set input method when championship changes (only if not manually overridden)
-    if '_last_auto_source_champ' not in st.session_state or st.session_state.get('_last_auto_source_champ') != selected_champ:
-        _auto_idx = _source_map.get(_auto_source, 0)
-        st.session_state['race_input_method'] = _source_options[_auto_idx]
-        st.session_state['_last_auto_source_champ'] = selected_champ
+    # Default: use auto-detected source
+    input_method = _source_to_method.get(_auto_source, "Paste Text")
 
-    input_method = st.radio("Data Source", _source_options, key="race_input_method", horizontal=True)
+    # Allow user to override with manual paste
+    _col_source, _col_paste = st.columns([3, 1])
+    with _col_source:
+        _source_labels = {
+            "tsl": "🇬🇧 TSL Timing — paste event URL below",
+            "imsa": "🇺🇸 IMSA (Al Kamel) — paste event URL below",
+            "computime": "🕐 Computime — paste meeting URL below",
+            "speedhive": "🌐 Speedhive — browse or paste event URL below",
+            "paste": "📋 Paste driver names manually",
+        }
+        st.caption(_source_labels.get(_auto_source, "📋 Paste driver names"))
+    with _col_paste:
+        if _auto_source != "paste":
+            if st.checkbox("📋 Manual paste", key="_use_manual_paste", help="Override auto-import and paste names manually"):
+                input_method = "Paste Text"
 
     raw_results_list = []
     _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
