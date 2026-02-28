@@ -901,7 +901,7 @@ def render_dashboard(dashboard, daily_metrics, drivers):
         st.caption(f"Estimated Calls Needed: **{int(calls_needed)}**")
 
 def render_race_outreach(dashboard):
-    st.subheader("🏁 Race Result Outreach Tool")
+    st.subheader("🏁 Race Outreach")
     
     import json
 
@@ -914,20 +914,15 @@ def render_race_outreach(dashboard):
 
     # --- CIRCUITS: Load from Airtable → file → session state (merge all) ---
     if 'saved_circuits' not in st.session_state:
-        # 1. Try Airtable first (persistent across container recycles)
         at_circuits = []
         if settings and settings.is_available:
             at_circuits = settings.get('circuits', []) or []
-        # 2. Also check local file (committed to git = always has baseline)
         file_circuits = dashboard.race_manager.get_all_circuits() or []
-        # 3. Merge all sources
         st.session_state.saved_circuits = sorted(list(set(at_circuits + file_circuits)))
 
-    # Sync: merge race_manager circuits (from file) on every run
     rm_circuits = dashboard.race_manager.get_all_circuits() or []
     merged_circuits = sorted(list(set(st.session_state.saved_circuits + rm_circuits)))
     st.session_state.saved_circuits = merged_circuits
-
     saved_circuits = st.session_state.saved_circuits
 
     # --- CHAMPIONSHIPS: Load from Airtable → file → session state ---
@@ -935,7 +930,6 @@ def render_race_outreach(dashboard):
         at_champs = []
         if settings and settings.is_available:
             at_champs = settings.get('championships', []) or []
-        # Local file fallback (committed baseline)
         c_file = os.path.join(DATA_DIR, "saved_championships.json")
         file_champs = []
         if os.path.exists(c_file):
@@ -944,50 +938,19 @@ def render_race_outreach(dashboard):
                     file_champs = json.load(f)
             except:
                 pass
-        # Merge Airtable + file into session
         session_added = st.session_state.get('session_added_championships', [])
         all_champs = sorted(list(set(at_champs + file_champs + session_added)))
         st.session_state.session_added_championships = all_champs
         st.session_state.saved_championships_loaded = True
 
     session_added = st.session_state.get('session_added_championships', [])
-    # Merge calendar championship names so every tracked series appears
     _calendar_champs = list(RACE_CALENDARS.keys())
     saved_champs = sorted(list(set(session_added + _calendar_champs)))
 
-    # Build smart labels — championships with a recently finished round get 🔥
-    _champ_labels = {}
-    _recently_finished = []
-    _today = datetime.now().date()
-    for _cname in saved_champs:
-        _finished = _get_last_finished_round(_cname, _today)
-        if _finished:
-            _rd, _days = _finished
-            if _days == 0:
-                _tag = f"🔥 {_cname}  ←  {_rd['name']} (today!)"
-            elif _days == 1:
-                _tag = f"🔥 {_cname}  ←  {_rd['name']} (yesterday)"
-            elif _days <= 7:
-                _tag = f"🔥 {_cname}  ←  {_rd['name']} ({_days}d ago)"
-            else:
-                _tag = f"📅 {_cname}  ←  {_rd['name']} ({_days}d ago)"
-            _champ_labels[_cname] = _tag
-            _recently_finished.append((_cname, _days))
-        else:
-            _champ_labels[_cname] = _cname
-    # Sort: recently finished first (freshest at top), then alphabetical
-    _recently_finished.sort(key=lambda x: x[1])
-    _recent_names = [n for n, _ in _recently_finished]
-    _rest_names = [n for n in saved_champs if n not in _recent_names]
-    saved_champs = _recent_names + _rest_names
-
-
     # --- Helper: persist championships to Airtable + file (best-effort) ---
     def _persist_championships():
-        # 1. Write to Airtable (persistent)
         if settings and settings.is_available:
             settings.set('championships', sorted(saved_champs))
-        # 2. Also write to local file (backup / within-session)
         try:
             c_file = os.path.join(DATA_DIR, "saved_championships.json")
             with open(c_file, 'w') as f:
@@ -1003,108 +966,137 @@ def render_race_outreach(dashboard):
         if name not in st.session_state.saved_circuits:
             st.session_state.saved_circuits.append(name)
             st.session_state.saved_circuits = sorted(st.session_state.saved_circuits)
-        # 1. Write to Airtable (persistent)
         if settings and settings.is_available:
             settings.set('circuits', st.session_state.saved_circuits)
-        # 2. Also update race_manager + local file (backup)
         dashboard.race_manager.save_circuit(name)
-
-    # Sticky Global Championship
-    if 'global_championship' not in st.session_state:
-        st.session_state.global_championship = saved_champs[0] if saved_champs else ""
-
-    # =====================================================================
-    # CALLBACKS
-    # =====================================================================
-    def on_circuit_select():
-        if st.session_state.circuit_select:
-            st.session_state.event_name_input = st.session_state.circuit_select
 
     def _strip_flags(name):
         """Remove country flag emoji from circuit name."""
         import re as _re_flags
         return _re_flags.sub(r'[\U0001F1E0-\U0001F1FF]{2}', '', name).strip()
 
-    def on_champ_select():
-        val = st.session_state.champ_select_box
-        if val and val != "➕ Add New...":
-            st.session_state.global_championship = val
-            # Auto-fill circuit from the last completed round in the calendar
-            _last = _get_last_finished_round(val)
-            if _last:
-                _rd_info, _d_ago = _last
-                _circ = _strip_flags(_rd_info['name'])
-                # Add event dates so messaging can reference the specific weekend
-                # e.g. "Lusail (11-14 Feb)" or "Donington Park (18-20 Apr)"
-                try:
-                    _start_dt = datetime.strptime(_rd_info['start'], "%Y-%m-%d")
-                    _end_dt = datetime.strptime(_rd_info['end'], "%Y-%m-%d")
-                    if _start_dt.month == _end_dt.month:
-                        _date_str = f"{_start_dt.day}-{_end_dt.day} {_start_dt.strftime('%b')}"
-                    else:
-                        _date_str = f"{_start_dt.day} {_start_dt.strftime('%b')}-{_end_dt.day} {_end_dt.strftime('%b')}"
-                    _circ_with_date = f"{_circ} ({_date_str})"
-                except Exception:
-                    _circ_with_date = _circ
-                st.session_state['event_name_input'] = _circ_with_date
-                st.toast(f"🏁 {val} — last race: {_circ_with_date}")
+    def _format_round_dates(rd):
+        """Format round dates as '18-20 Apr' or '30 Jan-2 Feb'."""
+        try:
+            s = datetime.strptime(rd['start'], "%Y-%m-%d")
+            e = datetime.strptime(rd['end'], "%Y-%m-%d")
+            if s.month == e.month:
+                return f"{s.day}-{e.day} {s.strftime('%b')}"
             else:
-                st.toast(f"Championship set to: {val}")
+                return f"{s.day} {s.strftime('%b')}-{e.day} {e.strftime('%b')}"
+        except:
+            return rd.get('start', '')
 
-    def save_new_champ_callback():
-        val = st.session_state.new_champ_entry_seamless
-        if val:
-            val = val.strip()
-            st.session_state.global_championship = val
-            # Track in session so it appears immediately
-            session_added = st.session_state.get('session_added_championships', [])
-            if val not in session_added:
-                session_added.append(val)
-                st.session_state.session_added_championships = session_added
-            # Also persist to file
-            _persist_championships()
-            st.toast(f"Added & Set: {val}")
+    # Sticky Global Championship
+    if 'global_championship' not in st.session_state:
+        st.session_state.global_championship = saved_champs[0] if saved_champs else ""
 
     # =====================================================================
-    # LAYOUT
+    # 📢 THIS WEEK'S EVENTS — Alert banner
     # =====================================================================
-    rc_hist, rc_champ, rc_input, rc_btn = st.columns([1.5, 1.5, 2.0, 0.8])
+    _today = datetime.now().date()
+    _week_start = _today - timedelta(days=_today.weekday())  # Monday
+    _week_end = _week_start + timedelta(days=6)  # Sunday
 
-    with rc_hist:
-        st.selectbox(
-            "📜 Circuit History",
-            options=[""] + saved_circuits,
-            key="circuit_select",
-            on_change=on_circuit_select,
-            help="Select a previously used circuit to auto-fill."
-        )
+    _this_week = []
+    _just_finished = []  # Ended in last 3 days (Mon outreach window)
+    for _sname, _sdata in RACE_CALENDARS.items():
+        for _rd in _sdata['rounds']:
+            _rs = datetime.strptime(_rd['start'], "%Y-%m-%d").date()
+            _re = datetime.strptime(_rd['end'], "%Y-%m-%d").date()
+            # Currently happening or starts this week
+            if _rs <= _week_end and _re >= _week_start:
+                _this_week.append((_sname, _rd, _sdata['color']))
+            # Ended within last 3 days (outreach window)
+            elif 0 <= (_today - _re).days <= 3:
+                _just_finished.append((_sname, _rd, _sdata['color']))
 
-    with rc_champ:
+    if _just_finished:
+        _fin_parts = []
+        for _sn, _rd, _clr in _just_finished:
+            _days_ago = (_today - datetime.strptime(_rd['end'], "%Y-%m-%d").date()).days
+            _when = "today" if _days_ago == 0 else "yesterday" if _days_ago == 1 else f"{_days_ago}d ago"
+            _fin_parts.append(f"**{_sn}** {_rd['round']} — {_strip_flags(_rd['name'])} (ended {_when})")
+        st.success("🔥 **Ready for Outreach:** " + " · ".join(_fin_parts))
+
+    if _this_week:
+        _tw_parts = []
+        for _sn, _rd, _clr in _this_week:
+            _tw_parts.append(f"**{_sn}** {_rd['round']} — {_strip_flags(_rd['name'])} ({_format_round_dates(_rd)})")
+        st.info("📅 **This Week:** " + " · ".join(_tw_parts))
+
+    # =====================================================================
+    # STEP 1: SELECT CHAMPIONSHIP
+    # =====================================================================
+    # Map championships to their timing source
+    _CHAMP_TIMING_SOURCE = {
+        "BTCC": "tsl",  "British F4": "tsl", "GB3": "tsl",
+        "British GT": "tsl", "Porsche Cup GB": "tsl",
+        "Porsche Cup NA": "imsa", "Porsche Sprint NA": "imsa",
+        "Porsche Cup AU": "computime",
+        "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
+    }
+
+    # Sort: recently finished first, then alphabetical
+    _champ_sort_key = {}
+    for _cn in saved_champs:
+        _fin = _get_last_finished_round(_cn, _today)
+        if _fin:
+            _champ_sort_key[_cn] = _fin[1]  # days ago (lower = more recent)
+        else:
+            _champ_sort_key[_cn] = 9999
+    saved_champs = sorted(saved_champs, key=lambda x: (_champ_sort_key.get(x, 9999), x))
+
+    col_champ, col_round = st.columns([1, 2])
+
+    with col_champ:
         curr = st.session_state.global_championship
         opts = saved_champs + ["➕ Add New..."]
-
         idx = 0
         if curr in opts:
             idx = opts.index(curr)
 
-        def _format_champ(val):
+        def _format_champ_label(val):
             if val == "➕ Add New...":
                 return val
-            return _champ_labels.get(val, val)
+            _fin = _get_last_finished_round(val, _today)
+            if _fin:
+                _rd, _days = _fin
+                if _days <= 3:
+                    return f"🔥 {val}"
+                elif _days <= 14:
+                    return f"📅 {val}"
+            return val
+
+        def _on_champ_change():
+            val = st.session_state._outreach_champ
+            if val and val != "➕ Add New...":
+                st.session_state.global_championship = val
+                # Reset round selection when championship changes
+                st.session_state.pop('_outreach_round_idx', None)
 
         selected_champ = st.selectbox(
             "🏆 Championship",
             options=opts,
             index=idx,
-            format_func=_format_champ,
-            key="champ_select_box",
-            on_change=on_champ_select,
-            help="Championships from your calendar appear here. 🔥 = round finished recently."
+            format_func=_format_champ_label,
+            key="_outreach_champ",
+            on_change=_on_champ_change,
+            help="Select a championship. 🔥 = race finished in last 3 days."
         )
 
-        # Auto-fill circuit from last completed round (handled by on_champ_select callback)
-
         if selected_champ == "➕ Add New...":
+            def save_new_champ_callback():
+                val = st.session_state.new_champ_entry_seamless
+                if val:
+                    val = val.strip()
+                    st.session_state.global_championship = val
+                    session_added = st.session_state.get('session_added_championships', [])
+                    if val not in session_added:
+                        session_added.append(val)
+                        st.session_state.session_added_championships = session_added
+                    _persist_championships()
+                    st.toast(f"Added & Set: {val}")
             st.text_input(
                 "Name of New Championship",
                 placeholder="Type & Press Enter...",
@@ -1112,61 +1104,113 @@ def render_race_outreach(dashboard):
                 on_change=save_new_champ_callback,
                 label_visibility="collapsed"
             )
-            st.caption("Type name and press **Enter** to save.")
 
-    with rc_input:
-        # Pre-fill circuit from Speedhive if available (must happen BEFORE widget renders)
-        if not st.session_state.get('event_name_input'):
-            for _prefill_key in list(st.session_state.keys()):
-                if _prefill_key.startswith('sh_sessions_'):
-                    _prefill_ev, _prefill_ss = st.session_state[_prefill_key]
-                    if _prefill_ev:
-                        _prefill_loc = _prefill_ev.get('location', {}).get('name', '')
-                        if _prefill_loc:
-                            st.session_state['event_name_input'] = _prefill_loc
-                    break
+        # Show timing source for selected championship
+        if selected_champ and selected_champ != "➕ Add New...":
+            _source = _CHAMP_TIMING_SOURCE.get(selected_champ, "speedhive")
+            _source_labels = {
+                "tsl": "🇬🇧 TSL Timing",
+                "imsa": "🇺🇸 IMSA / Al Kamel",
+                "computime": "🕐 Computime",
+                "speedhive": "🌐 Speedhive",
+                "paste": "📋 Manual Paste",
+            }
+            st.caption(f"Data source: **{_source_labels.get(_source, _source)}**")
 
-        event_name_input = st.text_input(
-            "Circuit / Event Name",
-            placeholder="e.g. Donington Park",
-            help="Type name and press ENTER to update messages.",
-            key="event_name_input"
-        )
+    # =====================================================================
+    # STEP 2: SELECT ROUND (from calendar)
+    # =====================================================================
+    with col_round:
+        _cal_data = RACE_CALENDARS.get(selected_champ)
+        if _cal_data and selected_champ != "➕ Add New...":
+            rounds = _cal_data['rounds']
 
-    with rc_btn:
-        st.write("")  # Spacer
-        st.write("")
-        if st.button("🔄 Update", help="Save circuit & championship, then analyze drivers."):
-            if event_name_input:
-                _persist_circuit(event_name_input)
-            curr_champ = st.session_state.get('global_championship', '')
-            if curr_champ:
-                session_added = st.session_state.get('session_added_championships', [])
-                if curr_champ not in session_added:
-                    session_added.append(curr_champ)
-                    st.session_state.session_added_championships = session_added
-                _persist_championships()
-            # Flag to trigger analysis after data section renders
-            st.session_state['_run_analysis_on_update'] = True
-            st.rerun()
+            # Build round options with status indicators
+            _round_opts = []
+            _default_idx = 0
+            _best_finished_days = 9999
+            for i, rd in enumerate(rounds):
+                _re = datetime.strptime(rd['end'], "%Y-%m-%d").date()
+                _rs = datetime.strptime(rd['start'], "%Y-%m-%d").date()
+                _circ = _strip_flags(rd['name'])
+                _dates = _format_round_dates(rd)
 
+                if _re < _today:
+                    _days_ago = (_today - _re).days
+                    if _days_ago <= 3:
+                        _label = f"🔥 {rd['round']} — {_circ} ({_dates}) — {_days_ago}d ago"
+                    else:
+                        _label = f"✅ {rd['round']} — {_circ} ({_dates})"
+                    if _days_ago < _best_finished_days:
+                        _best_finished_days = _days_ago
+                        _default_idx = i
+                elif _rs <= _today <= _re:
+                    _label = f"🏁 {rd['round']} — {_circ} ({_dates}) — LIVE NOW"
+                    _default_idx = i
+                else:
+                    _label = f"⏳ {rd['round']} — {_circ} ({_dates})"
+
+                _round_opts.append(_label)
+
+            # Use stored index if available (user manually changed it)
+            _stored_idx = st.session_state.get('_outreach_round_idx', _default_idx)
+            if _stored_idx >= len(_round_opts):
+                _stored_idx = _default_idx
+
+            def _on_round_change():
+                st.session_state['_outreach_round_idx'] = st.session_state._outreach_round_sel
+
+            _sel_round_idx = st.selectbox(
+                f"📅 {selected_champ} — Select Round",
+                options=list(range(len(_round_opts))),
+                index=_stored_idx,
+                format_func=lambda i: _round_opts[i],
+                key="_outreach_round_sel",
+                on_change=_on_round_change,
+                help="Rounds with 🔥 just finished — ready for outreach."
+            )
+
+            # Set circuit + dates from selected round
+            _selected_round = rounds[_sel_round_idx]
+            _circ_name = _strip_flags(_selected_round['name'])
+            _circ_dates = _format_round_dates(_selected_round)
+            event_name_input = f"{_circ_name} ({_circ_dates})"
+            st.session_state['event_name_input'] = event_name_input
+            st.session_state.global_championship = selected_champ
+        else:
+            # Non-calendar championship — manual circuit entry
+            event_name_input = st.text_input(
+                "Circuit / Event Name",
+                placeholder="e.g. Donington Park (18-20 Apr)",
+                help="Type circuit name with dates.",
+                key="event_name_input"
+            )
+
+    # ── Show selected event summary ──
     if event_name_input:
         event_name = event_name_input
     else:
         event_name = "the circuit"
-        st.caption("⚠️ Type a circuit name above and press **Enter** (or Update) to customize messages.")
+
+    if selected_champ and selected_champ != "➕ Add New..." and event_name_input:
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:12px 20px;'
+            f'border-radius:10px;margin:8px 0;border-left:4px solid '
+            f'{RACE_CALENDARS.get(selected_champ, {}).get("color", "#4CAF50")};">'
+            f'<span style="font-size:18px;font-weight:700;color:#fff;">'
+            f'🏁 {selected_champ}</span>'
+            f'<span style="color:#aaa;margin-left:12px;font-size:15px;">{event_name}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
     # ── Chrome extension sync helper ──
-    # Uses st.markdown (unsafe_allow_html) so the hidden div lands inside a
-    # Streamlit iframe that content-streamlit.js can search via findElementInFrames().
-    # NOTE: only called ONCE, after the card loop, so session_state has the AI msg.
     def _render_ext_sync_div():
         """Inject hidden div for Chrome extension to read circuit/champ/AI message."""
         import json as _json_mod
         _c = (event_name_input or "").replace('"', '&quot;')
         _ch = st.session_state.get('global_championship', '').replace('"', '&quot;')
         _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
-        # Build per-driver AI message dict (JSON, HTML-escaped for attribute)
         _ai_dict = st.session_state.get('_ext_ai_messages', {})
         _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
         st.markdown(
@@ -1175,8 +1219,22 @@ def render_race_outreach(dashboard):
             unsafe_allow_html=True
         )
 
-    # 2. Input Data
-    input_method = st.radio("Input Method", ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing", "🇺🇸 Import from IMSA"], key="race_input_method", horizontal=True)
+    # =====================================================================
+    # STEP 3: DATA SOURCE — auto-select based on championship
+    # =====================================================================
+    _auto_source = _CHAMP_TIMING_SOURCE.get(selected_champ, "speedhive") if selected_champ != "➕ Add New..." else "paste"
+
+    # Map auto source to radio index
+    _source_options = ["Paste Text", "🌐 Import from Speedhive", "🕐 Import from Computime", "🇬🇧 Import from TSL Timing", "🇺🇸 Import from IMSA"]
+    _source_map = {"paste": 0, "speedhive": 1, "computime": 2, "tsl": 3, "imsa": 4}
+
+    # Auto-set input method when championship changes (only if not manually overridden)
+    if '_last_auto_source_champ' not in st.session_state or st.session_state.get('_last_auto_source_champ') != selected_champ:
+        _auto_idx = _source_map.get(_auto_source, 0)
+        st.session_state['race_input_method'] = _source_options[_auto_idx]
+        st.session_state['_last_auto_source_champ'] = selected_champ
+
+    input_method = st.radio("Data Source", _source_options, key="race_input_method", horizontal=True)
 
     raw_results_list = []
     _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
