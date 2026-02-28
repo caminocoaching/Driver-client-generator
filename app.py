@@ -2538,14 +2538,27 @@ def render_race_outreach(dashboard):
                             "{_ig_name_url}",
                             "{_ig_race_url}"
                         ];
+                        // Use top-level window to escape Streamlit iframe
+                        // Stagger opens to avoid popup blocker
+                        var opener = window.top || window.parent || window;
                         var blocked = false;
                         for (var i = 0; i < urls.length; i++) {{
-                            var w = window.open(urls[i], "_blank");
-                            if (!w || w.closed) {{ blocked = true; }}
+                            (function(url, delay) {{
+                                setTimeout(function() {{
+                                    var w = opener.open(url, "_blank");
+                                    if (!w || w.closed) {{
+                                        blocked = true;
+                                        document.getElementById("fallback").style.display = "block";
+                                    }}
+                                }}, delay);
+                            }})(urls[i], i * 150);
                         }}
-                        if (blocked) {{
-                            document.getElementById("fallback").style.display = "block";
-                        }}
+                        // Check after all have tried
+                        setTimeout(function() {{
+                            if (blocked) {{
+                                document.getElementById("fallback").style.display = "block";
+                            }}
+                        }}, urls.length * 150 + 200);
                     }}
                     </script>
                     '''
