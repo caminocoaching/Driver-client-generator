@@ -178,6 +178,23 @@ RACE_CALENDARS = {
             {"round": "R8", "name": "Hockenheimring 🇩🇪", "start": "2026-10-09", "end": "2026-10-12"},
         ]
     },
+    "IndyNXT": {
+        "color": "#D32F2F",  # IndyCar Red
+        "rounds": [
+            {"round": "R1", "name": "St. Petersburg 🇺🇸", "start": "2026-02-27", "end": "2026-03-01"},
+            {"round": "R2", "name": "Arlington 🇺🇸", "start": "2026-03-13", "end": "2026-03-15"},
+            {"round": "R3", "name": "Barber Motorsports Park 🇺🇸", "start": "2026-03-27", "end": "2026-03-29"},
+            {"round": "R4", "name": "Indianapolis (Road) 🇺🇸", "start": "2026-05-07", "end": "2026-05-09"},
+            {"round": "R5", "name": "Detroit 🇺🇸", "start": "2026-05-29", "end": "2026-05-31"},
+            {"round": "R6", "name": "WWT Raceway 🇺🇸", "start": "2026-06-05", "end": "2026-06-07"},
+            {"round": "R7", "name": "Road America 🇺🇸", "start": "2026-06-19", "end": "2026-06-21"},
+            {"round": "R8", "name": "Mid-Ohio 🇺🇸", "start": "2026-07-03", "end": "2026-07-05"},
+            {"round": "R9", "name": "Nashville 🇺🇸", "start": "2026-07-17", "end": "2026-07-19"},
+            {"round": "R10", "name": "Portland 🇺🇸", "start": "2026-08-07", "end": "2026-08-09"},
+            {"round": "R11", "name": "Milwaukee 🇺🇸", "start": "2026-08-28", "end": "2026-08-30"},
+            {"round": "R12", "name": "Laguna Seca 🇺🇸", "start": "2026-09-04", "end": "2026-09-06"},
+        ]
+    },
 }
 
 
@@ -1035,6 +1052,7 @@ def render_race_outreach(dashboard):
         "Porsche Cup NA": "imsa",
         "Porsche Cup AU": "computime",
         "Porsche Sprint NA": "paste",  # PDFs on porschesprint.com — no API
+        "IndyNXT": "paste",  # indycar.com/results
         "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
     }
 
@@ -1929,6 +1947,7 @@ def render_race_outreach(dashboard):
             "UAE F4": ("formulamideast.com", "https://formulamideast.com"),
             "Porsche Cup NZ": ("motorsport.org.nz", "https://motorsport.org.nz"),
             "Porsche Sprint NA": ("porschesprint.com/results", "https://porschesprint.com/results"),
+            "IndyNXT": ("indycar.com — IndyNXT Results", "https://www.indycar.com/results"),
             "DTM": ("dtm.com/results", "https://www.dtm.com/en/results"),
         }
         _link = _paste_links.get(selected_champ)
