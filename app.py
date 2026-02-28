@@ -1032,8 +1032,9 @@ def render_race_outreach(dashboard):
     _CHAMP_TIMING_SOURCE = {
         "BTCC": "tsl",  "British F4": "tsl", "GB3": "tsl",
         "British GT": "tsl", "Porsche Cup GB": "tsl",
-        "Porsche Cup NA": "imsa", "Porsche Sprint NA": "imsa",
+        "Porsche Cup NA": "imsa",
         "Porsche Cup AU": "computime",
+        "Porsche Sprint NA": "paste",  # PDFs on porschesprint.com — no API
         "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
     }
 
@@ -1918,26 +1919,24 @@ def render_race_outreach(dashboard):
                                         st.info(f"🏷️ Showing **{len(_imsa_filtered)}** drivers in **{_imsa_selected_class}**")
 
     else: # Paste Text
-        st.caption("Paste driver names from any timing sheet — one name per line.")
-        with st.expander("📋 Where to find results for each championship", expanded=False):
-            st.markdown("""
-| Championship | Results Website |
-|---|---|
-| **BTCC** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
-| **British F4** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
-| **GB3** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
-| **British GT** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
-| **Porsche Cup GB** | [tsl-timing.com](https://www.tsl-timing.com) (or use TSL Timing tab) |
-| **UAE F4** | [formulamideast.com](https://formulamideast.com) or [fg91motorsport.com](https://fg91motorsport.com) |
-| **Porsche Cup NA** | [results.imsa.com](https://results.imsa.com) (or use IMSA tab) |
-| **Porsche Cup AU** | [computime.com.au](https://computime.com.au) (or use Computime tab) |
-| **Porsche Cup NZ** | [motorsport.org.nz](https://motorsport.org.nz) or [porsche.org.nz](https://porsche.org.nz) |
-| **Porsche Sprint NA** | [porschesprint.com](https://porschesprint.com) |
-| **DTM** | [dtm.com/results](https://www.dtm.com/results) or [adac-motorsport.de](https://www.adac-motorsport.de) |
-
-💡 **Tip:** Download or view the classification/results PDF, copy all driver names, and paste below.
-""")
-        text_input = st.text_area("Driver List (Name per line)", height=150)
+        # Championship-specific download links
+        _paste_links = {
+            "BTCC": ("tsl-timing.com", "https://www.tsl-timing.com"),
+            "British F4": ("tsl-timing.com", "https://www.tsl-timing.com"),
+            "GB3": ("tsl-timing.com", "https://www.tsl-timing.com"),
+            "British GT": ("tsl-timing.com", "https://www.tsl-timing.com"),
+            "Porsche Cup GB": ("tsl-timing.com", "https://www.tsl-timing.com"),
+            "UAE F4": ("formulamideast.com", "https://formulamideast.com"),
+            "Porsche Cup NZ": ("motorsport.org.nz", "https://motorsport.org.nz"),
+            "Porsche Sprint NA": ("porschesprint.com/results", "https://porschesprint.com/results"),
+            "DTM": ("dtm.com/results", "https://www.dtm.com/en/results"),
+        }
+        _link = _paste_links.get(selected_champ)
+        if _link:
+            st.caption(f"📋 Download results from [{_link[0]}]({_link[1]}) → copy driver names → paste below.")
+        else:
+            st.caption("Paste driver names from any timing sheet — one name per line.")
+        text_input = st.text_area("Driver List (Name per line)", height=150, key="paste_names_input")
         if text_input:
             raw_results_list = text_input.split('\n')
     
