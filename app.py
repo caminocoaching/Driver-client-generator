@@ -2692,18 +2692,73 @@ def render_race_outreach(dashboard):
                             f'<div style="background:#E1306C;color:white;padding:6px;border-radius:6px;text-align:center;font-weight:bold;font-size:0.82em;">'
                             f'📸 Instagram Profile</div></a>', unsafe_allow_html=True)
 
-                    # --- 4 search buttons using native Streamlit link_button ---
-                    # (components.html iframes are sandboxed — JS can't open tabs)
-                    _s1, _s2 = st.columns(2)
-                    with _s1:
-                        st.link_button("👤 FB Name Search", _fb_name_url, use_container_width=True)
-                    with _s2:
-                        st.link_button("🔍 Google → FB", _fb_race_url, use_container_width=True)
-                    _s3, _s4 = st.columns(2)
-                    with _s3:
-                        st.link_button("📸 Google → IG", _ig_name_url, use_container_width=True)
-                    with _s4:
-                        st.link_button("🏁 IG + Racing", _ig_race_url, use_container_width=True)
+                    # --- ONE BUTTON to open all 4 searches at once ---
+                    # Uses components.html() which runs JS in its own iframe
+                    # (st.markdown strips <script> tags, so we can't use it)
+                    import streamlit.components.v1 as components
+                    _open4_html = f'''
+                    <style>
+                        body {{ margin: 0; padding: 0; background: transparent; }}
+                        .open4-btn {{
+                            display: block;
+                            width: 100%;
+                            padding: 12px 8px;
+                            background: linear-gradient(135deg, #1877F2, #E1306C);
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-size: 15px;
+                            font-weight: bold;
+                            cursor: pointer;
+                            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                            transition: opacity 0.2s;
+                        }}
+                        .open4-btn:hover {{ opacity: 0.85; }}
+                        .open4-btn:active {{ transform: scale(0.98); }}
+                        .fallback {{ display: none; margin-top: 6px; text-align: center; }}
+                        .fallback a {{
+                            display: inline-block;
+                            margin: 3px;
+                            padding: 6px 12px;
+                            border-radius: 5px;
+                            color: white;
+                            text-decoration: none;
+                            font-size: 12px;
+                            font-weight: bold;
+                            font-family: sans-serif;
+                        }}
+                        .fb {{ background: #1877F2; }}
+                        .ig {{ background: #E1306C; }}
+                        .gg {{ background: #34A853; }}
+                    </style>
+                    <button class="open4-btn" onclick="openAll4()">🚀 Open All 4 Searches</button>
+                    <div class="fallback" id="fallback">
+                        <div style="font-size:11px;color:#999;margin-bottom:4px;">↓ If blocked, click individually:</div>
+                        <a href="{_fb_name_url}" target="_blank" class="fb">👤 FB Name</a>
+                        <a href="{_fb_race_url}" target="_blank" class="gg">🔍 Google FB</a>
+                        <a href="{_ig_name_url}" target="_blank" class="ig">📸 IG Name</a>
+                        <a href="{_ig_race_url}" target="_blank" class="ig">🏁 IG Race</a>
+                    </div>
+                    <script>
+                    function openAll4() {{
+                        var urls = [
+                            "{_fb_name_url}",
+                            "{_fb_race_url}",
+                            "{_ig_name_url}",
+                            "{_ig_race_url}"
+                        ];
+                        var blocked = false;
+                        for (var i = 0; i < urls.length; i++) {{
+                            var w = window.open(urls[i], "_blank");
+                            if (!w || w.closed) {{ blocked = true; }}
+                        }}
+                        if (blocked) {{
+                            document.getElementById("fallback").style.display = "block";
+                        }}
+                    }}
+                    </script>
+                    '''
+                    components.html(_open4_html, height=56)
 
                     # Messenger link if they have FB
                     if r_fb and not _thread:
