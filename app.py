@@ -2693,8 +2693,8 @@ def render_race_outreach(dashboard):
                             f'📸 Instagram Profile</div></a>', unsafe_allow_html=True)
 
                     # --- ONE BUTTON to open all 4 searches at once ---
-                    # Uses components.html() which runs JS in its own iframe
-                    # (st.markdown strips <script> tags, so we can't use it)
+                    # Uses hidden <a> tags clicked programmatically — browsers trust
+                    # anchor clicks from iframes more than window.open() calls.
                     import streamlit.components.v1 as components
                     _open4_html = f'''
                     <style>
@@ -2715,63 +2715,56 @@ def render_race_outreach(dashboard):
                         }}
                         .open4-btn:hover {{ opacity: 0.85; }}
                         .open4-btn:active {{ transform: scale(0.98); }}
-                        .fallback {{ display: none; margin-top: 6px; text-align: center; }}
-                        .fallback a {{
-                            display: inline-block;
-                            margin: 3px;
-                            padding: 6px 12px;
+                        .search-links {{
+                            display: flex;
+                            flex-wrap: wrap;
+                            gap: 4px;
+                            margin-top: 6px;
+                        }}
+                        .search-links a {{
+                            flex: 1 1 45%;
+                            padding: 6px 8px;
                             border-radius: 5px;
                             color: white;
                             text-decoration: none;
                             font-size: 12px;
                             font-weight: bold;
                             font-family: sans-serif;
+                            text-align: center;
                         }}
                         .fb {{ background: #1877F2; }}
                         .ig {{ background: #E1306C; }}
                         .gg {{ background: #34A853; }}
                     </style>
+                    <!-- Hidden anchors for programmatic clicking -->
+                    <a id="link0" href="{_fb_name_url}" target="_blank" style="display:none;"></a>
+                    <a id="link1" href="{_fb_race_url}" target="_blank" style="display:none;"></a>
+                    <a id="link2" href="{_ig_name_url}" target="_blank" style="display:none;"></a>
+                    <a id="link3" href="{_ig_race_url}" target="_blank" style="display:none;"></a>
+
                     <button class="open4-btn" onclick="openAll4()">🚀 Open All 4 Searches</button>
-                    <div class="fallback" id="fallback">
-                        <div style="font-size:11px;color:#999;margin-bottom:4px;">↓ If blocked, click individually:</div>
+
+                    <div class="search-links">
                         <a href="{_fb_name_url}" target="_blank" class="fb">👤 FB Name</a>
                         <a href="{_fb_race_url}" target="_blank" class="gg">🔍 Google FB</a>
                         <a href="{_ig_name_url}" target="_blank" class="ig">📸 IG Name</a>
                         <a href="{_ig_race_url}" target="_blank" class="ig">🏁 IG Race</a>
                     </div>
+
                     <script>
                     function openAll4() {{
-                        var urls = [
-                            "{_fb_name_url}",
-                            "{_fb_race_url}",
-                            "{_ig_name_url}",
-                            "{_ig_race_url}"
-                        ];
-                        // Use top-level window to escape Streamlit iframe
-                        // Stagger opens to avoid popup blocker
-                        var opener = window.top || window.parent || window;
-                        var blocked = false;
-                        for (var i = 0; i < urls.length; i++) {{
-                            (function(url, delay) {{
+                        // Click hidden anchor tags — browsers trust these more than window.open
+                        for (var i = 0; i < 4; i++) {{
+                            (function(idx) {{
                                 setTimeout(function() {{
-                                    var w = opener.open(url, "_blank");
-                                    if (!w || w.closed) {{
-                                        blocked = true;
-                                        document.getElementById("fallback").style.display = "block";
-                                    }}
-                                }}, delay);
-                            }})(urls[i], i * 150);
+                                    document.getElementById("link" + idx).click();
+                                }}, idx * 200);
+                            }})(i);
                         }}
-                        // Check after all have tried
-                        setTimeout(function() {{
-                            if (blocked) {{
-                                document.getElementById("fallback").style.display = "block";
-                            }}
-                        }}, urls.length * 150 + 200);
                     }}
                     </script>
                     '''
-                    components.html(_open4_html, height=56)
+                    components.html(_open4_html, height=95)
 
                     # Messenger link if they have FB
                     if r_fb and not _thread:
