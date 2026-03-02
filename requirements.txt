@@ -9,3 +9,5 @@ google-auth
 google-api-python-client
 altair<5
 pdfplumber
+tavily-python
+google-generativeai

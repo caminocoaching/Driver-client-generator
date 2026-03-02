@@ -195,6 +195,59 @@ RACE_CALENDARS = {
             {"round": "R12", "name": "Laguna Seca 🇺🇸", "start": "2026-09-04", "end": "2026-09-06"},
         ]
     },
+    "GR86 Championship NZ": {
+        "color": "#B71C1C",  # Dark Red (Toyota GR Racing)
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs Motorsport Park 🇳🇿", "start": "2025-10-31", "end": "2025-11-02"},
+            {"round": "R2", "name": "Hampton Downs Motorsport Park 🇳🇿", "start": "2026-01-07", "end": "2026-01-11"},
+            {"round": "R3", "name": "Teretonga Park, Invercargill 🇳🇿", "start": "2026-01-23", "end": "2026-01-25"},
+            {"round": "R4", "name": "Highlands Motorsport Park, Cromwell 🇳🇿", "start": "2026-01-30", "end": "2026-02-01"},
+            {"round": "R5", "name": "Manfeild – Circuit Chris Amon, Feilding 🇳🇿", "start": "2026-02-27", "end": "2026-03-01"},
+            {"round": "R6", "name": "Taupo International Motorsport Park 🇳🇿", "start": "2026-04-10", "end": "2026-04-12"},
+        ]
+    },
+    "CTFROC (Formula Regional Oceania)": {
+        "color": "#1A237E",  # Navy (FIA single-seater)
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs Motorsport Park 🇳🇿", "start": "2026-01-08", "end": "2026-01-11"},
+            {"round": "R2", "name": "Taupo International Motorsport Park 🇳🇿", "start": "2026-01-16", "end": "2026-01-18"},
+            {"round": "R3", "name": "Teretonga Park, Invercargill 🇳🇿", "start": "2026-01-22", "end": "2026-01-25"},
+            {"round": "R4", "name": "Highlands Motorsport Park, Cromwell 🇳🇿", "start": "2026-01-29", "end": "2026-02-01"},
+        ]
+    },
+    "Summerset GT NZ": {
+        "color": "#FF6F00",  # Amber
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2025-10-31", "end": "2025-11-02"},
+            {"round": "R2", "name": "Teretonga Park, Invercargill 🇳🇿", "start": "2026-01-23", "end": "2026-01-25"},
+            {"round": "R3", "name": "Highlands Motorsport Park, Cromwell 🇳🇿", "start": "2026-01-30", "end": "2026-02-01"},
+            {"round": "R4", "name": "Manfeild Grand Finale 🇳🇿", "start": "2026-02-27", "end": "2026-03-01"},
+        ]
+    },
+    "GTRNZ": {
+        "color": "#004D40",  # Dark Teal-Green
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2026-01-09", "end": "2026-01-11"},
+        ]
+    },
+    "TA2 NZ": {
+        "color": "#E53935",  # Muscle Car Red
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs International 🇳🇿", "start": "2025-10-31", "end": "2025-11-02"},
+            {"round": "R2", "name": "Hampton Downs National 🇳🇿", "start": "2025-11-22", "end": "2025-11-23"},
+            {"round": "R3", "name": "Teretonga Park 🇳🇿", "start": "2026-01-23", "end": "2026-01-25"},
+            {"round": "R4", "name": "Highlands Motorsport Park 🇳🇿", "start": "2026-01-30", "end": "2026-02-01"},
+            {"round": "R5", "name": "Manfeild 🇳🇿", "start": "2026-02-27", "end": "2026-03-01"},
+            {"round": "R6", "name": "Taupo (Supercars) 🇳🇿", "start": "2026-04-10", "end": "2026-04-12"},
+        ]
+    },
+    "NZ Formula Ford": {
+        "color": "#5C6BC0",  # Indigo
+        "rounds": [
+            {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2025-10-31", "end": "2025-11-02"},
+            {"round": "R2", "name": "Manfeild Grand Finale 🇳🇿", "start": "2026-02-27", "end": "2026-03-01"},
+        ]
+    },
 }
 
 
@@ -1041,6 +1094,162 @@ def render_race_outreach(dashboard):
         for _sn, _rd, _clr in _this_week:
             _tw_parts.append(f"**{_sn}** {_rd['round']} — {_strip_flags(_rd['name'])} ({_format_round_dates(_rd)})")
         st.info("📅 **This Week:** " + " · ".join(_tw_parts))
+
+    # =====================================================================
+    # 🔬 RESEARCH NEW CHAMPIONSHIP (Tavily + Gemini Flash)
+    # =====================================================================
+    _has_research_keys = (
+        "research" in st.secrets
+        and st.secrets["research"].get("tavily_api_key")
+        and st.secrets["research"].get("gemini_api_key")
+    )
+
+    with st.expander("🔬 **Research New Championship**", expanded=False):
+        if not _has_research_keys:
+            st.info(
+                "🔑 To enable AI championship research, add your free API keys to `.streamlit/secrets.toml`:\n\n"
+                "```toml\n[research]\ntavily_api_key = \"tvly-...\"\ngemini_api_key = \"AIza...\"\n```\n\n"
+                "• **Tavily** (free 1,000 searches/mo): [tavily.com](https://tavily.com)\n"
+                "• **Gemini** (free 15 RPM): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)"
+            )
+        else:
+            st.caption("Enter a championship name → AI searches the web → extracts drivers, calendar & results.")
+            _research_col1, _research_col2 = st.columns([3, 1])
+            with _research_col1:
+                _research_query = st.text_input(
+                    "Championship to research",
+                    placeholder="e.g. GR86 Championship NZ 2025-2026",
+                    key="research_champ_query",
+                    label_visibility="collapsed",
+                )
+            with _research_col2:
+                _do_research = st.button("🔍 Research", type="primary", use_container_width=True)
+
+            if _do_research and _research_query:
+                from championship_researcher import ChampionshipResearcher
+
+                _researcher = ChampionshipResearcher(
+                    tavily_api_key=st.secrets["research"]["tavily_api_key"],
+                    gemini_api_key=st.secrets["research"]["gemini_api_key"],
+                )
+
+                _progress_bar = st.progress(0)
+                _status_text = st.empty()
+
+                def _research_progress(step, msg):
+                    _progress_bar.progress(min(step / 6, 1.0))
+                    _status_text.caption(f"Step {step}/6: {msg}")
+
+                with st.spinner("Researching..."):
+                    _research_data = _researcher.research(_research_query, progress_callback=_research_progress)
+
+                _progress_bar.progress(1.0)
+                _status_text.empty()
+
+                if "error" in _research_data:
+                    st.error(f"Research failed: {_research_data['error']}")
+                else:
+                    st.session_state['_research_result'] = _research_data
+                    st.rerun()
+
+            # ── Display Research Results ──
+            if '_research_result' in st.session_state:
+                _rdata = st.session_state['_research_result']
+                _champ_name = _rdata.get('championship_name', _rdata.get('query', ''))
+
+                st.success(f"✅ **{_champ_name}** — {_rdata.get('season', '')}")
+
+                # Sources
+                _sources = _rdata.get('sources', [])
+                if _sources:
+                    _src_links = " · ".join([f"[{s['title'][:30]}]({s['url']})" for s in _sources[:5]])
+                    st.caption(f"📚 Sources: {_src_links}")
+
+                # ── Calendar ──
+                _cal_events = _rdata.get('calendar', [])
+                if _cal_events:
+                    st.markdown("#### 📅 Calendar")
+                    _cal_rows = []
+                    for ev in _cal_events:
+                        _cal_rows.append({
+                            "Round": ev.get('round', ''),
+                            "Venue": ev.get('venue') or ev.get('name', ''),
+                            "Start": ev.get('start_date', ''),
+                            "End": ev.get('end_date', ''),
+                        })
+                    import pandas as _pd_cal
+                    st.dataframe(_pd_cal.DataFrame(_cal_rows), use_container_width=True, hide_index=True)
+
+                    # Add to Calendar button
+                    _cal_color = st.color_picker("Calendar colour", value="#607D8B", key="research_cal_color")
+                    if st.button("📅 Add Calendar to App", key="research_add_cal"):
+                        from championship_researcher import research_to_calendar_dict
+                        _new_cal = research_to_calendar_dict(_rdata, color=_cal_color)
+                        if _new_cal["rounds"]:
+                            RACE_CALENDARS[_champ_name] = _new_cal
+                            # Also persist the championship name
+                            _sa = st.session_state.get('session_added_championships', [])
+                            if _champ_name not in _sa:
+                                _sa.append(_champ_name)
+                                st.session_state.session_added_championships = _sa
+                            _persist_championships()
+                            st.success(f"✅ Added **{_champ_name}** ({len(_new_cal['rounds'])} rounds) to calendar!")
+                            st.toast(f"📅 {_champ_name} added to calendar")
+                        else:
+                            st.warning("No valid dates found to add.")
+
+                # ── Drivers ──
+                _drivers = _rdata.get('drivers', [])
+                if _drivers:
+                    st.markdown(f"#### 🏎️ Drivers ({len(_drivers)})")
+                    _drv_rows = []
+                    for d in _drivers:
+                        _drv_rows.append({
+                            "#": d.get('number', ''),
+                            "First Name": d.get('first_name', ''),
+                            "Last Name": d.get('last_name', ''),
+                            "Nationality": d.get('nationality', ''),
+                            "Team": d.get('team', ''),
+                        })
+                    import pandas as _pd_drv
+                    st.dataframe(_pd_drv.DataFrame(_drv_rows), use_container_width=True, hide_index=True)
+
+                    # Bulk import button
+                    if st.button(f"⚡ Import {len(_drivers)} Drivers to Pipeline", key="research_import_drivers", type="primary"):
+                        _imported = 0
+                        _prog = st.progress(0)
+                        for _idx, d in enumerate(_drivers):
+                            _first = d.get('first_name', '').strip()
+                            _last = d.get('last_name', '').strip()
+                            if _first and _last:
+                                _slug = f"{_first}_{_last}".lower().replace(" ", "_")
+                                _email = f"no_email_{_slug}"
+                                _notes_parts = []
+                                if d.get('number'): _notes_parts.append(f"#{d['number']}")
+                                if d.get('nationality'): _notes_parts.append(d['nationality'])
+                                if d.get('team'): _notes_parts.append(d['team'])
+                                _notes = " · ".join(_notes_parts)
+
+                                if dashboard.add_new_driver(
+                                    _email, _first, _last, "", "",
+                                    championship=_champ_name, notes=_notes
+                                ):
+                                    dashboard.update_driver_stage(_email, FunnelStage.CONTACT)
+                                    _imported += 1
+                            _prog.progress((_idx + 1) / len(_drivers))
+                        st.success(f"✅ Imported **{_imported}** drivers into the pipeline!")
+                        st.toast(f"⚡ {_imported} drivers imported")
+
+                # ── Results Summary ──
+                _results_summary = _rdata.get('results_summary', '')
+                if _results_summary:
+                    st.markdown("#### 🏁 Results")
+                    st.write(_results_summary)
+
+                # Clear button
+                if st.button("🗑️ Clear Research", key="research_clear"):
+                    del st.session_state['_research_result']
+                    st.rerun()
 
     # =====================================================================
     # STEP 1: SELECT CHAMPIONSHIP
