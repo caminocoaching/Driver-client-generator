@@ -1559,7 +1559,7 @@
     body.appendChild(aiMsgContainer);
 
     // Load AI message from chrome.storage
-    // AI message may use {name} placeholder — replaced at click time with current rider's first name
+    // AI message may use {name} placeholder — replaced at click time with current driver's first name
     let currentAiTemplate = '';
 
     function updateAiButton(template) {
@@ -1571,7 +1571,21 @@
       aiMsgContainer.style.display = 'block';
     }
 
-    // Look up rider-specific AI message from the per-rider dictionary,
+    // Generate a fallback cold outreach when no AI message is synced from app
+    function getFallbackAiMessage() {
+      const firstName = getFirstName(currentName);
+      const circuitInput = document.getElementById('ag-circuit-input');
+      const circuit = circuitInput ? circuitInput.value.trim() : '';
+
+      const templates = [
+        `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
+        `Hey ${firstName}, looks like you had a solid weekend${circuit ? ' at ' + circuit : ''}. How's the car feeling?`,
+        `Hey ${firstName}, hope the weekend went well${circuit ? ' at ' + circuit : ''}. How's the season shaping up for you?`,
+      ];
+      return templates[Math.floor(Math.random() * templates.length)];
+    }
+
+    // Look up driver-specific AI message from the per-driver dictionary,
     // falling back to the single default message if no match found.
     function loadAiMessage() {
       try {
@@ -1600,10 +1614,19 @@
 
           if (template) {
             updateAiButton(template.replace(/\\n/g, '\n'));
+          } else {
+            // No AI message from app — show fallback cold outreach
+            const fallback = getFallbackAiMessage();
+            updateAiButton(fallback);
+            // Mark as fallback so preview shows differently
+            const nameEl = aiBtn.querySelector('.ag-tmpl-name');
+            if (nameEl) nameEl.textContent = '🤖 AI Race Outreach';
           }
         });
       } catch (e) {
         console.warn('[AG] Could not load AI message from storage:', e.message);
+        // Even on error, show fallback
+        updateAiButton(getFallbackAiMessage());
       }
     }
     loadAiMessage();
