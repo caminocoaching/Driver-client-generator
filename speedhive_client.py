@@ -28,7 +28,8 @@ TIMEOUT = 15  # seconds
 # These are discovered by looking up any event URL for the championship.
 # Users can link new championships via a one-time URL paste.
 KNOWN_ORGS = {
-    "CVMA": {"org_id": 119509, "name": "Chuckwalla Valley Motorcycle Association", "sport": "Bike"},
+    # Add car racing Speedhive orgs here as they are discovered
+    # e.g. "BTCC": {"org_id": 12345, "name": "British Touring Car Championship", "sport": "Car"},
 }
 
 

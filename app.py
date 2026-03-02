@@ -1557,7 +1557,7 @@ def render_race_outreach(dashboard):
                                     "Save as (short name for dropdown)",
                                     value=_org_name.split()[0] if _org_name else "",
                                     key="sh_link_name",
-                                    help="E.g. 'CVMA', 'Bemsee', 'WERA' — whatever you'll recognise"
+                                    help="E.g. 'BTCC', 'British F4', 'GB3' — whatever you'll recognise"
                                 )
                                 if st.button("🔗 Link Championship", key="sh_link_btn"):
                                     if _link_name:

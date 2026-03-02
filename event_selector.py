@@ -34,23 +34,20 @@ from datetime import datetime
 # Championships without a free public API use "paste" + a results_url
 # so the user can quickly grab names from the official results page.
 CHAMPIONSHIP_TIMING_MAP = {
-    # ── Auto-discover (free APIs) ──
-    "MotoGP":      {"source": "motogp"},
-    "ASBK":        {"source": "computime"},
-    "CVMA":        {"source": "speedhive", "org_id": 119509},
-    "BSB":         {"source": "tsl", "event_id_prefix": "26"},
-    "No Limits":   {"source": "tsl", "event_id_prefix": "26"},
-    "Bemsee":      {"source": "tsl", "event_id_prefix": "26"},
-    "Moto4 Asia Cup": {"source": "moto4asia"},
+    # ── Car Racing Championships ──
+    # Auto-discover (TSL covers most UK circuits)
+    "BTCC":           {"source": "tsl", "event_id_prefix": "26"},
+    "British F4":     {"source": "tsl", "event_id_prefix": "26"},
+    "GB3":            {"source": "tsl", "event_id_prefix": "26"},
+    "British GT":     {"source": "tsl", "event_id_prefix": "26"},
+    "Porsche Cup GB": {"source": "tsl", "event_id_prefix": "26"},
+    "F4 CEZ":         {"source": "tsl", "event_id_prefix": "26"},
     # ── Manual paste (no free public API) ──
-    "WSBK":        {"source": "paste", "results_url": "https://www.worldsbk.com/en/results", "results_label": "worldsbk.com — Results"},
-    "MotoAmerica": {"source": "paste", "results_url": "https://motoamerica.com/results/", "results_label": "motoamerica.com — Results"},
-    "IDM":         {"source": "paste", "results_url": "https://www.idm.de/en/results/", "results_label": "idm.de — Results"},
-    "CSBK":        {"source": "paste", "results_url": "https://www.csbk.ca/results", "results_label": "csbk.ca — Results"},
-    "JuniorGP":    {"source": "paste", "results_url": "https://www.fimcevrepsol.com/en/results", "results_label": "fimcevrepsol.com — Results"},
-    "RB Rookies":  {"source": "paste", "results_url": "https://www.redbullrookiescup.com/results", "results_label": "redbullrookiescup.com — Results"},
-    "ESBK":        {"source": "paste", "results_url": "https://www.rfme.com/resultados", "results_label": "rfme.com — Results"},
-    "WERA":        {"source": "paste", "results_url": "https://www.wera.com/results", "results_label": "wera.com — Results"},
+    "UAE F4":         {"source": "paste", "results_url": "https://www.uaef4.com/results", "results_label": "uaef4.com — Results"},
+    "IndyNXT":        {"source": "paste", "results_url": "https://www.indycar.com/results", "results_label": "indycar.com — Results"},
+    "Porsche Sprint NA": {"source": "paste", "results_url": "https://www.porschesprint.com/results", "results_label": "porschesprint.com — Results"},
+    "Euro F4":        {"source": "paste", "results_url": "https://www.euroformularacing.com/results/", "results_label": "euroformularacing.com — Results"},
+    "F1 Academy":     {"source": "paste", "results_url": "https://www.fiaformula1academy.com/Results", "results_label": "F1 Academy — Results"},
 }
 
 

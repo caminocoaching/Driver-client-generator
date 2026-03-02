@@ -3853,7 +3853,7 @@ class SocialFinder:
             links['🏁 Event check'] = make_link(f'"{name}" AND "{event_name}" ("race results" OR "competitor")')
             
         # Level 4: Validation (Associations)
-        links['📋 Racing Org Check'] = make_link(f'"{name}" AND ("CVMA" OR "WERA" OR "ASMA" OR "CRA")')
+        links['📋 Racing Org Check'] = make_link(f'"{name}" AND ("BTCC" OR "British GT" OR "British F4" OR "GB3" OR "Porsche Cup")')
         links['⏱️ Lap Times'] = make_link(f'"{name}" AND ("lap times" OR "race monitor" OR "mylaps")')
         
         return links
