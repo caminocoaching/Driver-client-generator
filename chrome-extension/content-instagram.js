@@ -53,8 +53,8 @@
   // Check URL hash for driver name passed from pipeline app search buttons
   function checkHashForRiderName() {
     const hash = window.location.hash;
-    if (hash && hash.includes('ag_rider=')) {
-      const name = decodeURIComponent(hash.split('ag_rider=')[1].replace(/\+/g, ' '));
+    if (hash && hash.includes('ag_driver=')) {
+      const name = decodeURIComponent(hash.split('ag_driver=')[1].replace(/\+/g, ' '));
       if (name && name.length > 1) {
         pipelineDriverName = name;
         _nameSetByApp = true;
