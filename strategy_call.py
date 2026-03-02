@@ -1,881 +1,651 @@
-#!/usr/bin/env python3
 """
 Strategy Call System
 ====================
-Implements the Championship Strategy Call Framework with:
-- Application Questions (replacing Typeform)
-- Pre-Call Preparation (personalized script overlay)
-- Post-Call Analysis (scoring against gold standard)
-- Dynamic Driver/Driver terminology
+Implements the Championship Strategy Call Framework for Flow Performance sales.
+- Pre-Call Preparation (Mode 1): Analyze candidate data, generate personalized script overlay
+- Post-Call Analysis (Mode 2): Score calls against gold standard, provide coaching
+- Application Questions: Replace Typeform with in-app questionnaire
+- Dynamic Terminology: Auto-swap rider/driver terms based on candidate type
 """
 
-import streamlit as st
-from datetime import datetime
-import re
 import json
+import os
+import re
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 # =============================================================================
-# TERMINOLOGY SWAP — Driver ↔ Driver
+# APPLICATION QUESTIONS (replaces Typeform)
 # =============================================================================
-RIDER_TO_DRIVER_SWAPS = {
-    "driver": "driver",
-    "drivers": "drivers",
-    "ride": "drive",
-    "riding": "driving",
-    "bike": "car",
-    "bikes": "cars",
-    "machine": "car",
-    "handlebars": "steering wheel",
-    "saddle": "cockpit",
-    "MotoGP": "F1",
-    "BSB": "BTCC",
-    "Moto2": "GT3",
-    "lean angle": "G-force",
-    "arm pump": "pedal feel",
-    "on your bike": "in your car",
-    "on that track": "on that circuit",
-}
 
-def swap_terminology(text, to_driver=False):
-    """Swap driver/driver terminology in text."""
-    if not to_driver or not text:
-        return text
-    result = text
-    for driver_term, driver_term in RIDER_TO_DRIVER_SWAPS.items():
-        # Case-preserving replacement
-        result = re.sub(
-            re.escape(driver_term),
-            driver_term,
-            result,
-            flags=re.IGNORECASE
-        )
-        # Title case
-        result = re.sub(
-            re.escape(driver_term.title()),
-            driver_term.title(),
-            result
-        )
-    return result
-
-
-# =============================================================================
-# APPLICATION QUESTIONS (replacing Typeform)
-# =============================================================================
 APPLICATION_QUESTIONS = [
     {"id": "first_name", "label": "First Name", "type": "text", "required": True},
     {"id": "last_name", "label": "Last Name", "type": "text", "required": True},
     {"id": "email", "label": "Email", "type": "text", "required": True},
     {"id": "phone", "label": "Phone Number", "type": "text", "required": True},
-    {"id": "age", "label": "What Is Your Age? (If Under 18 Your Parents Will Need To Be On The Call)", "type": "text", "required": True},
-    {"id": "current_level", "label": "What is your current level of performance?", "type": "text", "required": True},
+    {"id": "age", "label": "What Is Your Age? (If Under 18, Parents Will Need To Be On The Call)", "type": "text", "required": True},
+    {"id": "performance_level", "label": "What is your current level of performance?", "type": "text", "required": True},
     {"id": "championship", "label": "What Championship do you race in?", "type": "text", "required": True},
-    {"id": "inspiration", "label": "What initially inspired you to pursue racing at this level?", "type": "textarea", "required": True},
-    {"id": "season_goal", "label": "What's your No.1 racing goal for this season?", "type": "textarea", "required": True},
-    {"id": "surprise_score", "label": "Your IMPROVE Assessment revealed specific performance gaps. Which category surprised you most with its score?", "type": "textarea", "required": True},
-    {"id": "breakthrough_topic", "label": "After completing the Podium Contenders Blueprint 3-day training, which topic created your biggest breakthrough moment?", "type": "textarea", "required": True},
+    {"id": "racing_inspiration", "label": "What initially inspired you to pursue racing at this level?", "type": "textarea", "required": True},
+    {"id": "season_goal", "label": "What's your No1 racing goal for this season?", "type": "textarea", "required": True},
+    {"id": "assessment_surprise", "label": "Your IMPROVE Assessment revealed specific performance gaps. Which category surprised you most with its score?", "type": "textarea", "required": True},
+    {"id": "blueprint_breakthrough", "label": "After completing the Podium Contenders Blueprint, 3-day training. Which topic created your biggest breakthrough moment?", "type": "textarea", "required": True},
     {"id": "mental_barrier", "label": "What's the #1 mental barrier you're committed to eliminating this season?", "type": "textarea", "required": True},
-    {"id": "commitment_level", "label": "How committed are you to solving this barrier this season?", "type": "slider", "min": 1, "max": 10, "required": True},
-    {"id": "full_potential", "label": "If you were performing at your full potential consistently, how would racing feel different?", "type": "textarea", "required": True},
-    {"id": "driver_type", "label": "What best describes you?", "type": "select",
-     "options": ["Professional Racer", "Dedicated Amateur", "Track Day Enthusiast", "Aspiring Professional"],
-     "required": True},
+    {"id": "commitment_level", "label": "How committed are you to solving this barrier this season?", "type": "select",
+     "options": ["10/10 - Whatever it takes", "8-9/10 - Very committed", "6-7/10 - Fairly committed", "Below 6 - Exploring options"], "required": True},
+    {"id": "full_potential_feeling", "label": "If you were performing at your full potential consistently, how would racing feel different?", "type": "textarea", "required": True},
+    {"id": "racer_type", "label": "What best describes you?", "type": "select",
+     "options": ["Professional Racer", "Semi-Professional", "Serious Amateur", "Club Racer", "Aspiring Professional"], "required": True},
     {"id": "funding_source", "label": "Who funds your racing?", "type": "select",
-     "options": ["Self-Funded", "Family-Funded", "Sponsor-Funded", "Mix of Self + Sponsors", "Looking for Sponsorship"],
-     "required": True},
+     "options": ["Self-Funded", "Family Funded (Bank of Mum and Dad)", "Sponsored", "Mix of Self & Sponsor", "Looking for Sponsorship"], "required": True},
     {"id": "financial_ready", "label": "If accepted into Flow Performance, do you have the financial resources to invest in elite-level mental training right now?", "type": "select",
-     "options": ["Yes, I'm ready to invest", "I'd need to arrange funding", "I'd need a payment plan", "Not sure yet"],
-     "required": True},
-    {"id": "effort_willingness", "label": "How willing are you to invest time, focus, and effort into achieving your racing goals?", "type": "slider", "min": 1, "max": 10, "required": True},
-    {"id": "seriousness", "label": "On a scale of 1-10, how serious are you about breakthrough performance?", "type": "slider", "min": 1, "max": 10, "required": True},
+     "options": ["Yes, I have the resources", "I'd need to arrange it but could do so", "I'd need a payment plan", "Not sure yet"], "required": True},
+    {"id": "willingness_invest", "label": "How willing are you to invest time, focus, and effort into achieving your racing goals?", "type": "select",
+     "options": ["100% - All in", "Very willing", "Willing but cautious", "Need more info first"], "required": True},
+    {"id": "seriousness_scale", "label": "On a scale of 1-10, how serious are you about breakthrough performance?", "type": "slider", "min": 1, "max": 10, "required": True},
     {"id": "three_year_vision", "label": "Where do you see yourself 3 years from now?", "type": "textarea", "required": True},
     {"id": "anything_else", "label": "Anything else we should know?", "type": "textarea", "required": False},
 ]
 
-
 # =============================================================================
-# CHAMPIONSHIP STRATEGY CALL FRAMEWORK (Master Script)
+# DYNAMIC TERMINOLOGY SWAP (Rider ↔ Driver)
 # =============================================================================
-CALL_FRAMEWORK = {
-    "call_1": {
-        "title": "Championship Strategy Call (Push Call)",
-        "stages": [
-            {
-                "stage": 1,
-                "name": "Intro & Rapport",
-                "script": """Hey {name}, it's Craig from Camino Coaching. How are you?
 
-Great. You scheduled a call with me for about now, is it still a good time to chat?
-
-Fantastic. You went through our training right, the Podium Contenders Blueprint — how did you find it?
-
-Great stuff. Well listen, thanks for your interest in booking a call to explore what I've got and see if it would be of value to you and help you achieve your racing goals.
-
-This first call is to find out where you're at, where you're stuck and what your goals are. What I've found to work best on these calls is to ask you a few questions, get to know your situation better and then I can start making some recommendations if I feel we can help.
-
-Sound good?""",
-                "coaching_notes": "Build rapport fast. Mirror their energy. Reference something specific from their application.",
-                "data_keys": ["first_name", "championship", "current_level"]
-            },
-            {
-                "stage": 2,
-                "name": "The Reverse Frame",
-                "script": """Awesome. And just a heads up, you don't need to worry about being sold anything on this call.
-
-If I can speak openly, I only have the capacity to work with a handful of drivers each month and I do have some specific criteria for who I can help.
-
-So even if we really hit it off, if it's ok with you, we'll jump off the line so I can go over my notes from the call, I'll share that with my team and then we'll be back in touch.
-
-So whatever the outcome of this call, we'll both have a chance to go away and think, and we can reconvene in the next few days. Sound ok?""",
-                "coaching_notes": "CRITICAL: This removes sales pressure. The prospect must feel they are being interviewed, not sold to. This is key to the 58% conversion rate.",
-                "data_keys": []
-            },
-            {
-                "stage": 3,
-                "name": "The Detective",
-                "script": """Great stuff. That's all sounding very exciting!
-
-I'd love to dive into a few things on your application form if you wouldn't mind?
-
-You mentioned that your goal is {season_goal}. Awesome goal.
-- Have you ever achieved that kind of result before?
-- How did you come up with that goal?
-- Why is it important to you?
-
-You put that you're a {commitment_level}/10 on being committed. What's keeping you from a 10?
-
-Oh and by the way, not a question here, just a quick statement… I noticed on the 'what's your biggest mental barrier' question, you said {mental_barrier} and I LOVE THAT. That's exactly the kind of self-awareness we're looking for.
-
-What are the top 2 or 3 struggles you are facing during a race weekend?
-
-How long has this been holding you back?
-
-What's this costing you emotionally? How does it feel when you're struggling with this?
-
-What have you tried to fix this? What happened?
-
-What does a race weekend cost on average?""",
-                "coaching_notes": "DIG DEEP here. The more pain you uncover, the stronger the close. Reference their IMPROVE scores. Their lowest score = biggest lever.",
-                "data_keys": ["season_goal", "commitment_level", "mental_barrier", "surprise_score"]
-            },
-            {
-                "stage": 4,
-                "name": "Pain Amplification",
-                "script": """So what have you tried so far? Have you worked with any other coaches to get this fixed? How did that go?
-
-Have you seen any results at all this year or has it been a constant struggle?
-
-So, what shifted recently to make this a priority?
-Why is it important to you?
-How is that affecting your confidence?
-What are you going to do if you don't get this figured out?
-Why not just stay where you are?
-Surely you can't keep going like this, right?
-
-If nothing changes, where will you be next season?""",
-                "coaching_notes": "This is where you amplify the gap between where they ARE and where they WANT to be. Use their own words back to them. Silence is powerful here — let them sit in the discomfort.",
-                "data_keys": ["current_level", "season_goal"]
-            },
-            {
-                "stage": 5,
-                "name": "Create Doubt & Education",
-                "script": """Can I share something that might be eye-opening?
-
-Most drivers I speak with have been focusing on external solutions - better suspension, stickier tires, more track time. But here's what the research shows about peak performance...
-
-\"This all makes sense to me {name}. You're certainly not the first person to be struggling with all this.
-
-In fact, do you mind if I go off on a little tangent real quick, because it might be helpful for you to know a bit of what's going on behind the scenes and why it's so much harder right now, would that be helpful?\"""",
-                "coaching_notes": "Position Flow Performance as the ONLY solution that addresses the root cause. Create doubt about all other approaches they've tried.",
-                "data_keys": ["first_name"]
-            },
-            {
-                "stage": 6,
-                "name": "Wrap It Up — Summary",
-                "script": """\"{name}, I really appreciate you being so honest with me. So here's what I'm hearing...\"
-
-You're feeling... [REMIND THEM OF PAIN]
-You've tried... [REMIND THEM OF WHAT HASN'T WORKED]
-You need... [REMIND THEM OF THEIR GOAL AND BIGGEST WANTS]
-
-\"Is that right?\"
-WAIT FOR A YES
-
-\"Well I can definitely help with this.\"
-[INSERT A TESTIMONIAL HERE IF POSSIBLE — \"In fact, you remind me of...\"]
-
-\"Well look, I'd love to lay out a bit of a plan for you and how I can help you achieve {season_goal}, but let me ask you first...\"
-
-\"If I can show you exactly how to fix these issues and help you achieve your goals, how quickly are you wanting to get started on fixing this?\"""",
-                "coaching_notes": "Summarise using THEIR words. This is a commitment check. If they say 'immediately' or 'as soon as possible', you're in a strong position.",
-                "data_keys": ["first_name", "season_goal"]
-            },
-            {
-                "stage": 7,
-                "name": "The Roadmap & 5 Pillars",
-                "script": """Based on what you've shared, here's exactly what needs to happen. Grab a pen...
-
-The lowest score from your assessment is your No.1 Priority: {surprise_score}
-
-The 5 pillars needed to hold your performance roof up:
-
-Pillar 1 - MINDSET: Racing Mind is the first module. Personal 1-on-1 coaching calls throughout your season to rewire your approach and eliminate the frustration cycle you're stuck in.
-
-Pillar 2 - PREPARATION: A complete pre-session routine and race weekend structure so you're fast from the out-lap instead of taking 20 minutes to get up to speed.
-
-Pillar 3 - FLOW: 6 comprehensive modules teaching you exactly how to get into flow state in free practice, qualifying, and races - the same mental state where your fastest laps happen effortlessly.
-
-Pillar 4 - FEEDBACK: Our exclusive In The Zone app on your phone works without signal at the track. You feed in details from your previous session, and it tells you exactly what to focus on in the next session to improve.
-
-Pillar 5 - FUNDING: The complete blueprint that enabled Sam Wilford to fund his dream - leaving his job in London, moving to Mallorca, training daily with professional drivers, and competing with AGR for 4 seasons in Junior GP Moto2 Championship.
-
-Where do you want to go from here?""",
-                "coaching_notes": "They'll ask about working together. Let THEM ask. If they don't, prompt with 'Where do you want to go from here?'",
-                "data_keys": ["surprise_score"]
-            },
-            {
-                "stage": 8,
-                "name": "The Push Pitch & Investment",
-                "script": """\"Happy to explain how that works. Just remember - I won't be able to offer you anything today. I need to speak with the other drivers first and really think about this. But I can walk you through what working together looks like.\"
-
-*Sell your heart out* - Full program details, success stories, transformation process.
-
-Remember, the 5 pillars needed to hold your performance roof up? Let me break down what you're actually getting in the programme...
-
-On a scale of 1-10 how close do you think that programme would come to fixing your struggles?
-
-You're Struggling with... {mental_barrier}
-You've Tried... [what they said]
-You Need... A proven process that's going to give you the way to perform consistently at your best to achieve {season_goal}
-
-*The Tiedowns (5 minutes)*
-
-Desire: \"Does this sound like something you'd want to do?\"
-
-Shall we talk about the investment needed to join Flow Performance?
-
-Firstly, can you commit to 20 minutes a day for the training?
-
-Regarding the finances, when I used to work 1-on-1 with drivers, all this would have cost over £9,000 per season. But because we now have a training platform, you don't need to pay for my time, travel, and accommodation.
-
-You get lifetime access to it all for only £4,000.
-
-How does that sound to you?
-
-Investment: \"Looking at the investment, if we had space and we both decide it's a good fit, how would you want to make the payment — on a credit card or would you want to chunk it down into a few payments?\"
-
-I'm not saying there is space yet, but let's explore that for a minute.
-
-Timing: If we both decide it's a good fit, is there anything stopping you from starting immediately?""",
-                "coaching_notes": "The 'I can't offer you anything today' line is CRUCIAL. It's the reverse frame that makes them chase you. Never skip this.",
-                "data_keys": ["mental_barrier", "season_goal"]
-            },
-            {
-                "stage": 9,
-                "name": "Future Pacing & Book Call 2",
-                "script": """Let me paint two pictures: 3 months from now you're going to be somewhere and you're going to be someone, the question is who will you be?
-
-Version 1 - No Action Taken:
-Things stay the same, you decide the time's not right to get started. £4000 is too much to invest in yourself. 3 months from now: You're still struggling with {mental_barrier}, still frustrated, still finishing not where you want to be. Nowhere near your goal of {season_goal}. You saved 4k but what has it actually cost you?
-
-Or Version 2 - You Invest in Yourself:
-3 months from now: You've applied the mental frameworks, you understand why you struggled before, you've had breakthrough weekends. People are taking notice, asking what you've changed. Instead of frustration, you're driving home knowing no one on your bike with your budget on that track in those conditions could have ridden better than you did today. You're excited about your progress.
-
-AND You've secured your first 12k sponsor and you are talking to many more.
-
-In 3 months you're going to be someone — which one do you want to be?
-
-Book Call 2: I need to complete my other interviews. Let's reconnect tomorrow at [time] and I'll let you know my decision.
-
-So {name}, you've got a decision to make in the next 24 hours.
-
-*Is there anything you feel you've missed that I can add to my notes before we head off?*""",
-                "coaching_notes": "Book the second call BEFORE hanging up. Get a specific time. Send a calendar invite immediately after.",
-                "data_keys": ["first_name", "mental_barrier", "season_goal"]
-            },
-        ]
-    },
-    "call_2": {
-        "title": "Driver Fit Call (Pull Close - 2nd Call)",
-        "stages": [
-            {
-                "stage": 1,
-                "name": "Reconnect & Temperature Check",
-                "script": """Hey {name}, nice to speak to you again. How have you been feeling since our last call?
-
-*Good? - move on.*
-*Are they worried, not sure or fear has crept in? - work on that FIRST before officially offering them a spot.*""",
-                "coaching_notes": "If they're nervous, address it immediately. Fear = buying signal. They're nervous because they WANT it.",
-                "data_keys": ["first_name"]
-            },
-            {
-                "stage": 2,
-                "name": "Recap & Requalify",
-                "script": """Well listen, I've had a good think and I've spoken to the team and I have some good news and bad news.
-
-Before I get into that, would you mind if I quickly recap our last call to make sure we're both on the same page?
-
-Recap #1 - Their situation: You want to {season_goal}
-Recap #2 - You're struggling with {mental_barrier}
-Recap #3 - The result they want
-
-The £4,000 investment felt manageable.
-You're ready to work on the mental side rather than more equipment.
-
-Still accurate?
-
-One question: How coachable are you?
-
-We've found our process works best when drivers follow the steps exactly.
-
-I only like to work with people who are coachable, open to feedback, and ready to take action quickly.
-
-This works best for drivers who are fully committed and follow the program to the T.
-
-Is that you?
-
-What about your commitment level — are you genuinely ready for daily practice?
-Your racing, home, and work schedule allows for proper implementation?""",
-                "coaching_notes": "The coachability question is a filter AND a commitment device. By saying yes, they're pre-committing to the programme.",
-                "data_keys": ["first_name", "season_goal", "mental_barrier"]
-            },
-            {
-                "stage": 3,
-                "name": "The Offer — Good News / Bad News",
-                "script": """\"Perfect, just wanted to be absolutely sure.\"
-
-\"I've got some good news and some bad news for you. Which would you like first?\"
-
-GOOD NEWS: \"Look, I loved your application and my notes on your situation. Particularly [SPECIFIC THING 1] and [SPECIFIC THING 2].\"
-*pause*
-\"So I'm very keen to have you in the program and would like to offer you a spot. Congratulations, we're looking forward to working with you on this.\"
-
-BAD NEWS: \"I'm afraid you're going to be stuck with the Camino Coaching family for the next 6 months!\"
-
-\"How are you feeling — excited, nervous, or a bit of both?\"
-
-(Reassure if nervous: \"That's totally normal! Investing in yourself is a big step, but you're in good hands.\")
-
-Here's what happens next: Once we take payment you'll get instant access to the training platform, and we'll book your first kickoff call so you're not left guessing. Most drivers tell me they see changes even in the first week.""",
-                "coaching_notes": "The 'bad news' joke breaks tension. Mirror their emotion — if they're excited, be excited. If nervous, be reassuring.",
-                "data_keys": ["first_name"]
-            },
-            {
-                "stage": 4,
-                "name": "Close & Payment",
-                "script": """\"Perfect. I'll get your member area set up and our first call booked. From my notes, you preferred [payment option], so I have that ready.\"
-
-\"When you're ready, I'll take your card details.\"
-
-\"You've made an excellent choice. This is exactly what will transform your racing.\"
-
-Here's what happens next... You will get an email in the next 30 minutes.
-
-Picture 1: Six months from now, you've mastered the mental game. You're the driver setting lap records, enjoying every session, achieving goals you didn't think possible.
-
-Picture 2: Six months of the same struggles, same frustrations, still wondering if you'll ever breakthrough.
-
-Which future do you prefer? Then let's make Picture 1 your reality.""",
-                "coaching_notes": "Take payment on the call. Don't let them 'think about it' — that's what Call 1 was for.",
-                "data_keys": ["first_name"]
-            },
-            {
-                "stage": 5,
-                "name": "Objection Handling",
-                "script": """\"Do you have any questions or concerns before we get you set up?\"
-
-If \"I still need to think about it\":
-- \"What's changed between our first call and now?\"
-- \"What's the real reason you are hesitating?\"
-- \"What would you need to feel comfortable moving forward?\"
-- \"Would it help to get started with the Starter plan and upgrade later if things go well?\"
-- \"Should we set a check-in date to finalise your spot?\"
-
-If it's the logistics of moving money around, take a £500 deposit. Explain that it's company policy.
-
-IF it MUST go to a 3rd call, set it up so there is no way they can stall further:
-- \"So it's just X that you need to figure out? There's no other reason that could prevent you joining?\"
-- \"What would you like me to add to my notes to share with my team because they were expecting to be welcoming you today.\"""",
-                "coaching_notes": "Most objections are smoke screens. 'I need to think about it' usually means 'I'm scared'. Address the fear, not the objection.",
-                "data_keys": []
-            },
-        ]
-    }
+RIDER_TO_DRIVER_SWAPS = {
+    "Rider": "Driver", "rider": "driver", "Riders": "Drivers", "riders": "drivers",
+    "Ride": "Drive", "ride": "drive", "Riding": "Driving", "riding": "driving",
+    "Bike": "Car", "bike": "car", "Bikes": "Cars", "bikes": "cars",
+    "Machine": "Car", "machine": "car",
+    "Handlebars": "Steering Wheel", "handlebars": "steering wheel",
+    "Saddle": "Cockpit", "saddle": "cockpit",
+    "MotoGP": "F1", "BSB": "BTCC",
+    "Lean Angle": "G-Force", "lean angle": "g-force",
+    "arm pump": "pedal feel/fatigue",
+    "lap time": "lap time",  # stays the same
 }
 
-
-# =============================================================================
-# PRE-CALL PREPARATION — Generate Script Overlay
-# =============================================================================
-def generate_precall_prep(candidate_data, call_number=1):
-    """Generate a personalized script overlay from candidate data."""
-    is_driver = _detect_discipline(candidate_data)
-    call_key = "call_1" if call_number == 1 else "call_2"
-    framework = CALL_FRAMEWORK[call_key]
-
-    output_sections = []
-    output_sections.append(f"# 🎯 PRE-CALL PREP: {candidate_data.get('first_name', 'Candidate')} {candidate_data.get('last_name', '')}")
-    output_sections.append(f"**Call Type:** {framework['title']}")
-    output_sections.append(f"**Discipline:** {'🏎️ Driver' if is_driver else '🏍️ Driver'}")
-    output_sections.append(f"**Generated:** {datetime.now().strftime('%d %b %Y %H:%M')}")
-    output_sections.append("---")
-
-    # Key indicators
-    output_sections.append("## 🔑 Key Indicators")
-    indicators = _extract_indicators(candidate_data)
-    for ind in indicators:
-        output_sections.append(f"- {ind}")
-    output_sections.append("---")
-
-    # Script with overlays
-    for stage_data in framework["stages"]:
-        output_sections.append(f"## Stage {stage_data['stage']}: {stage_data['name']}")
-
-        # Insert data-driven insights
-        insights = _generate_insights(stage_data, candidate_data)
-        if insights:
-            for insight in insights:
-                output_sections.append(f"> **[>> NOTE: {insight} <<]**")
-            output_sections.append("")
-
-        # Script text with variable substitution
-        script = stage_data["script"]
-        script = _substitute_variables(script, candidate_data)
-        if is_driver:
-            script = swap_terminology(script, to_driver=True)
-
-        output_sections.append(script)
-        output_sections.append("")
-
-        # Coaching notes
-        coaching = stage_data["coaching_notes"]
-        if is_driver:
-            coaching = swap_terminology(coaching, to_driver=True)
-        output_sections.append(f"*💡 Coaching: {coaching}*")
-        output_sections.append("---")
-
-    return "\n\n".join(output_sections)
-
-
-def _detect_discipline(data):
-    """Detect if candidate is a driver (car) or driver (motorcycle)."""
-    text = " ".join(str(v) for v in data.values()).lower()
-    driver_keywords = ["car", "driver", "f1", "gt", "btcc", "touring", "formula",
-                       "kart", "karting", "wec", "rally", "nascar", "indycar",
-                       "porsche", "ferrari", "lambo", "aston martin", "mclaren"]
-    driver_keywords = ["bike", "motorcycle", "motorbike", "driver", "motogp", "bsb",
-                      "superbike", "moto2", "moto3", "wsbk", "asbk", "supersport"]
-
-    driver_score = sum(1 for k in driver_keywords if k in text)
-    driver_score = sum(1 for k in driver_keywords if k in text)
-
-    return driver_score > driver_score
-
-
-def _extract_indicators(data):
-    """Extract key qualification indicators from candidate data."""
-    indicators = []
-
-    # Coachability
-    commitment = data.get("commitment_level", 0)
-    seriousness = data.get("seriousness", 0)
-    if isinstance(commitment, str):
-        try: commitment = int(commitment)
-        except: commitment = 5
-    if isinstance(seriousness, str):
-        try: seriousness = int(seriousness)
-        except: seriousness = 5
-
-    if commitment >= 9:
-        indicators.append(f"🟢 **HIGH COACHABILITY**: Commitment {commitment}/10 — 'Ready to do whatever it takes'")
-    elif commitment >= 7:
-        indicators.append(f"🟡 **MODERATE COACHABILITY**: Commitment {commitment}/10 — Explore what's holding them from a 10")
-    else:
-        indicators.append(f"🔴 **LOW COACHABILITY**: Commitment {commitment}/10 — May need more warming")
-
-    # Financial qualification
-    funding = data.get("funding_source", "")
-    financial_ready = data.get("financial_ready", "")
-    if "ready to invest" in str(financial_ready).lower():
-        indicators.append(f"🟢 **FINANCIALLY QUALIFIED**: {financial_ready}. Funding: {funding}")
-    elif "payment plan" in str(financial_ready).lower():
-        indicators.append(f"🟡 **NEEDS PAYMENT PLAN**: {financial_ready}. Funding: {funding}")
-    else:
-        indicators.append(f"🔴 **FINANCIAL CONCERN**: {financial_ready}. Funding: {funding}")
-
-    # Pain gap
-    current = data.get("current_level", "Unknown")
-    goal = data.get("season_goal", "Unknown")
-    indicators.append(f"📊 **PAIN GAP**: Currently at '{current}' → Goal: '{goal}'")
-
-    # Mental barrier
-    barrier = data.get("mental_barrier", "")
-    if barrier:
-        indicators.append(f"🧠 **PRIMARY BARRIER**: {barrier}")
-
-    # Age check
-    age = data.get("age", "")
-    if age:
-        try:
-            age_int = int(age)
-            if age_int < 18:
-                indicators.append(f"⚠️ **UNDER 18**: Age {age} — Parents must be on call")
-        except:
-            pass
-
-    return indicators
-
-
-def _generate_insights(stage_data, candidate_data):
-    """Generate data-driven insights for a specific script stage."""
-    insights = []
-    keys = stage_data.get("data_keys", [])
-
-    if "surprise_score" in keys and candidate_data.get("surprise_score"):
-        insights.append(f"Candidate's most surprising IMPROVE score: '{candidate_data['surprise_score']}'. Use this as the primary pain lever.")
-
-    if "mental_barrier" in keys and candidate_data.get("mental_barrier"):
-        insights.append(f"Primary mental barrier: '{candidate_data['mental_barrier']}'. Reference this explicitly.")
-
-    if "commitment_level" in keys:
-        level = candidate_data.get("commitment_level", 5)
-        if isinstance(level, str):
-            try: level = int(level)
-            except: level = 5
-        if level < 10:
-            insights.append(f"Commitment is {level}/10. Ask: 'What's keeping you from a 10?' — this reveals hidden objections.")
-
-    if "funding_source" in keys or "financial_ready" in keys:
-        funding = candidate_data.get("funding_source", "")
-        if "sponsor" in str(funding).lower():
-            insights.append(f"Candidate is {funding}. Mention the 'Sponsorship Mastery' pillar (Pillar 5) here.")
-        if "family" in str(funding).lower():
-            insights.append(f"Candidate is Family-Funded. Parents may need to be included in decision. Prepare for 'I need to ask my parents' objection.")
-
-    if "season_goal" in keys and candidate_data.get("season_goal"):
-        insights.append(f"Season goal: '{candidate_data['season_goal']}'. Use this in future pacing.")
-
-    if "current_level" in keys and candidate_data.get("current_level"):
-        insights.append(f"Current performance level: '{candidate_data['current_level']}'. Amplify the gap vs their goal.")
-
-    return insights
-
-
-def _substitute_variables(script, data):
-    """Replace {variable} placeholders in script with candidate data."""
-    replacements = {
-        "{name}": data.get("first_name", "[NAME]"),
-        "{first_name}": data.get("first_name", "[NAME]"),
-        "{season_goal}": data.get("season_goal", "[THEIR GOAL]"),
-        "{commitment_level}": str(data.get("commitment_level", "[X]")),
-        "{mental_barrier}": data.get("mental_barrier", "[THEIR BARRIER]"),
-        "{surprise_score}": data.get("surprise_score", "[THEIR LOWEST SCORE]"),
-        "{current_level}": data.get("current_level", "[CURRENT LEVEL]"),
-        "{championship}": data.get("championship", "[CHAMPIONSHIP]"),
-    }
-    result = script
-    for key, value in replacements.items():
-        result = result.replace(key, str(value))
+def swap_terminology(text: str, to_driver: bool = True) -> str:
+    """Swap rider/motorcycle terms to driver/car terms or vice versa."""
+    if not to_driver:
+        return text
+    result = text
+    # Sort by length (longest first) to avoid partial replacements
+    for old, new in sorted(RIDER_TO_DRIVER_SWAPS.items(), key=lambda x: -len(x[0])):
+        result = result.replace(old, new)
     return result
 
 
 # =============================================================================
-# POST-CALL ANALYSIS — Score the call
+# CHAMPIONSHIP STRATEGY CALL FRAMEWORK (The Master Script)
 # =============================================================================
-ANALYSIS_CRITERIA = {
-    "adherence": {
-        "label": "Script Adherence",
-        "description": "Did Craig follow the Championship Strategy Call Framework flow?",
-        "max_score": 10,
-        "checkpoints": [
-            "Reverse Frame delivered (Stage 2)",
-            "Detective questions asked with depth (Stage 3)",
-            "Pain amplification — dug into emotional cost (Stage 4)",
-            "5 Pillars presented clearly (Stage 7)",
-            "Investment discussed with 'I can't offer today' frame (Stage 8)",
-            "Future pacing — 2 pictures painted (Stage 9)",
-            "Call 2 booked before hanging up",
-        ]
+
+CALL_1_FRAMEWORK = """
+## CHAMPIONSHIP STRATEGY CALL — CALL 1 (The Discovery Call)
+
+### Stage 1: Opener & Rapport (2-3 minutes)
+"Hey {name}, how are you doing? Good to finally speak to you!"
+
+"So the idea of this call really is a bit of fact-finding from both sides — for you to ask me any questions, and obviously just to get to know you. I know a little bit more than I did three days ago because you've gone through the mini course."
+
+"How did you find that mini course?"
+
+*Let them talk — build rapport. Listen for emotional cues.*
+
+"And so maybe you could start by telling me why you decided to book a call at the end of it? Because some people might go, yeah, that's all interesting stuff, thanks a lot. But you went, no, let's book a call. Why is that?"
+
+---
+
+### Stage 2: The Detective — Pain Amplification (10-15 minutes)
+*This is the CORE of the call. Dig deep into their struggles.*
+
+"Tell me about your racing. What championship are you in? What's your current level?"
+
+{detective_notes}
+
+**Key Questions to Ask:**
+- "What's been your biggest frustration this season?"
+- "When you're on track, what's going through your mind at the crucial moments?"
+- "What have you tried before to fix this?"
+- "How long has this been going on?"
+- "What's it costing you — results-wise, financially, emotionally?"
+
+*Score their pain on a scale of 1-10. You need 7+ to proceed confidently.*
+
+---
+
+### Stage 3: The Dream — Future Pacing (5 minutes)
+"If we could wave a magic wand and fix all of this, what would your racing look like?"
+
+{dream_notes}
+
+"What would that mean to you personally? To your family? Your sponsors?"
+
+*Get them emotionally connected to the outcome.*
+
+---
+
+### Stage 4: The Bridge — Credibility & Case Studies (5 minutes)
+"Can I share something with you? Because your situation reminds me of Sam Wilford..."
+
+"Sam came to us in a similar position. He was talented, everyone knew it, but he couldn't put it together consistently. Within the programme, he went on to secure a fully-funded ride in the CEV Moto2 Championship, racing alongside Fermín Aldeguer, Alonso López and many more current MotoGP stars."
+
+"On a scale of 1-10 how close do you think that programme would come to fixing {their_struggles}?"
+
+---
+
+### Stage 5: The Framework — Present Your Solution
+"You're Struggling with.... {their_struggles}"
+"You've Tried.... {what_theyve_tried}"
+"You Need.... A proven process that's going to give you the way to perform consistently at your best to achieve {their_goal}"
+
+---
+
+### Stage 6: The Tiedowns (5 minutes)
+
+**Desire:** "Does this sound like something you'd want to do?"
+
+**Investment:** "Shall we talk about the investment needed to join Flow Performance?"
+
+"Firstly, can you commit to 20 minutes a day for the training?"
+
+"Regarding the finances, when I used to work 1-on-1 with {riders_or_drivers}, all this would have cost over £9,000 per season. But because we now have a training platform, you don't need to pay for my time, travel, and accommodation."
+
+"You get lifetime access to it all for only £4,000."
+
+"How does that sound to you?"
+
+**Payment:** "Looking at the investment, if we had space and we both decide it's a good fit, how would you want to make the payment — on a credit card or would you want to chunk it down into a few payments?"
+
+"I'm not saying there is space yet, but let's explore that for a minute."
+
+**Timing:** "If we both decide it's a good fit, is there anything stopping you from starting immediately?"
+
+---
+
+### Stage 7: Book Call 2
+"I need to complete my other interviews."
+
+"Let's reconnect tomorrow at [time] and I'll let you know my decision."
+
+"So {name}, you've got a decision to make in the next 24 hours."
+
+**Paint Two Pictures:**
+
+"Let me paint two pictures: 3 months from now you're going to be somewhere and you're going to be someone — the question is, who will you be?"
+
+**Version 1 — No Action:** "Things stay the same, you decide the time's not right to get started, £4000 is too much to invest in yourself. 3 months from now: You're still {their_current_struggle}, still frustrated, still finishing not where you want to be. Nowhere near your goal of {their_goal}. You saved 4k but what has it actually cost you?"
+
+**Version 2 — You Invest:** "3 months from now: You've applied the mental frameworks, you understand why you struggled before, you've had breakthrough weekends. People are taking notice, asking what you have changed? Instead of frustration, you're driving home knowing no one on your {bike_or_car} with your budget on that track in those conditions could have {ridden_or_driven} better than you did today. You're excited about your progress and you're running where you should be. AND you've secured your first £12k sponsor and you are talking to many more."
+
+"In the 3 months, you're going to be someone — which one do you want to be?"
+
+**Book Second Call:** [calendly.com/caminocoaching/rider-fit-call]
+
+*"Is there anything you feel you've missed that I can add to my notes before we head off?"*
+"""
+
+CALL_2_FRAMEWORK = """
+## CHAMPIONSHIP STRATEGY CALL — CALL 2 (The Close)
+
+### Recap
+"Ok so just let me recap what we covered last time..."
+
+"You want to {their_goal}"
+"You're {their_current_struggle} with {their_struggles}"
+"You have tried {what_theyve_tried}"
+"The £4,000 investment felt manageable"
+"You're ready to work on the mental side rather than more equipment"
+
+"Still accurate?"
+
+---
+
+### Coachability Check
+"One question: *How coachable are you?*"
+
+"We've found our process works best when {riders_or_drivers} follow the steps exactly."
+
+"*I only like to work with people who are coachable, open to feedback, and ready to take action quickly.*"
+
+"This works best for {riders_or_drivers} who are fully committed and follow the program to the T."
+
+"*Is that you?*"
+
+"What about your commitment level — are you genuinely ready for daily practice?"
+"Your racing, home, and work schedule allows for proper implementation?"
+
+---
+
+### Good News / Bad News
+"I've got some good news and some bad news for you. Which would you like first?"
+
+**GOOD NEWS:** "Look, I loved your application and my notes on your situation. Particularly {specific_thing_1} and {specific_thing_2}. So I'm very keen to have you in the program and would like to offer you a spot. Congratulations, we're looking forward to working with you on this."
+
+**BAD NEWS:** "I'm afraid you're going to be stuck with the Camino family for the next 6 months!"
+
+"How are you feeling — excited, nervous, or a bit of both?"
+
+---
+
+### Close
+"Perfect. I'll get your member area set up and our first call booked. From my notes, you preferred [payment option], so I have that ready. When you're ready, I'll take your card details."
+
+"You've made an excellent choice. This is exactly what will transform your racing. Here's what happens next... you will get an email in the next 30 minutes."
+
+---
+
+### Objection Handling
+"Do you have any questions or concerns before we get you set up?"
+
+- "What has changed between our first call and now?"
+- "What's the real reason you are hesitating?"
+- "What would you need to feel comfortable moving forward?"
+- "Would it help to get started with the Starter plan and upgrade later?"
+- "Should we set a check-in date to finalise your spot?"
+
+**"I still need to think about it":**
+- Ask what's changed since the first call?
+- If it's logistics of moving money: take the £500 deposit. Company policy!
+- IF it MUST go to a 3rd call: set it up so there's no way they can stall for a 4th.
+"""
+
+# =============================================================================
+# PRE-CALL PREPARATION (Mode 1)
+# =============================================================================
+
+def analyze_candidate_data(answers: Dict[str, str]) -> Dict[str, any]:
+    """Extract key indicators from candidate application answers."""
+    analysis = {
+        "name": f"{answers.get('first_name', '')} {answers.get('last_name', '')}".strip(),
+        "age": answers.get("age", "Unknown"),
+        "championship": answers.get("championship", "Unknown"),
+        "performance_level": answers.get("performance_level", "Unknown"),
+        "season_goal": answers.get("season_goal", "Not specified"),
+        "mental_barrier": answers.get("mental_barrier", "Not specified"),
+        "assessment_surprise": answers.get("assessment_surprise", "Not specified"),
+        "blueprint_breakthrough": answers.get("blueprint_breakthrough", "Not specified"),
+        "full_potential_feeling": answers.get("full_potential_feeling", "Not specified"),
+        "three_year_vision": answers.get("three_year_vision", "Not specified"),
+        "anything_else": answers.get("anything_else", ""),
+    }
+
+    # Coachability indicator
+    commitment = answers.get("commitment_level", "")
+    if "10/10" in commitment or "Whatever it takes" in commitment:
+        analysis["coachability"] = "🟢 HIGH — Commitment 10/10, ready to do whatever it takes"
+    elif "8-9" in commitment or "Very committed" in commitment:
+        analysis["coachability"] = "🟡 GOOD — Strong commitment, prime candidate"
+    else:
+        analysis["coachability"] = "🟠 MODERATE — May need extra conviction building"
+
+    # Financial qualification
+    funding = answers.get("funding_source", "")
+    financial = answers.get("financial_ready", "")
+    if "Family" in funding or "Mum and Dad" in funding:
+        analysis["financial_flag"] = "⚠️ Family-funded — parents may need to be on the call"
+    elif "Yes" in financial:
+        analysis["financial_flag"] = "🟢 Financially ready — has resources"
+    elif "payment plan" in financial.lower():
+        analysis["financial_flag"] = "🟡 Needs payment plan — present options"
+    else:
+        analysis["financial_flag"] = "🟠 Financial uncertainty — qualify carefully"
+
+    # Pain gap
+    analysis["pain_gap"] = f"Current: {answers.get('performance_level', 'N/A')} → Goal: {answers.get('season_goal', 'N/A')}"
+
+    # Seriousness
+    seriousness = answers.get("seriousness_scale", "5")
+    try:
+        score = int(seriousness)
+        if score >= 8:
+            analysis["seriousness"] = f"🟢 {score}/10 — Very serious"
+        elif score >= 6:
+            analysis["seriousness"] = f"🟡 {score}/10 — Fairly serious"
+        else:
+            analysis["seriousness"] = f"🟠 {score}/10 — May need more warming up"
+    except ValueError:
+        analysis["seriousness"] = f"❓ {seriousness}"
+
+    return analysis
+
+
+def generate_script_overlay(answers: Dict[str, str], is_driver: bool = True) -> str:
+    """Generate the personalized Call 1 script with bracketed insights."""
+    analysis = analyze_candidate_data(answers)
+    name = analysis["name"]
+
+    # Build detective notes from candidate data
+    detective_notes = []
+    if analysis.get("assessment_surprise"):
+        detective_notes.append(
+            f"[>> NOTE: Candidate's biggest assessment surprise was: \"{analysis['assessment_surprise']}\". "
+            f"Dig into this — ask how it affects their race weekends. <<]"
+        )
+    if analysis.get("mental_barrier"):
+        detective_notes.append(
+            f"[>> NOTE: Their #1 mental barrier is: \"{analysis['mental_barrier']}\". "
+            f"This is their core pain point — amplify this throughout the call. <<]"
+        )
+    if analysis.get("blueprint_breakthrough"):
+        detective_notes.append(
+            f"[>> NOTE: Breakthrough moment from Blueprint: \"{analysis['blueprint_breakthrough']}\". "
+            f"Reference this to show the programme already started working for them. <<]"
+        )
+
+    detective_str = "\n".join(detective_notes) if detective_notes else "[No pre-call data available — use standard discovery questions]"
+
+    # Build dream notes
+    dream_notes = []
+    if analysis.get("full_potential_feeling"):
+        dream_notes.append(f"[>> NOTE: When performing at full potential, they said: \"{analysis['full_potential_feeling']}\". Mirror this language back to them. <<]")
+    if analysis.get("three_year_vision"):
+        dream_notes.append(f"[>> NOTE: 3-year vision: \"{analysis['three_year_vision']}\". Connect the programme to this long-term goal. <<]")
+
+    dream_str = "\n".join(dream_notes) if dream_notes else ""
+
+    # Key indicators summary
+    summary = f"""
+## 🎯 PRE-CALL BRIEF: {name}
+**Championship:** {analysis['championship']} | **Level:** {analysis['performance_level']} | **Age:** {analysis['age']}
+
+### Key Indicators
+| Indicator | Status |
+|-----------|--------|
+| Coachability | {analysis['coachability']} |
+| Financial | {analysis['financial_flag']} |
+| Pain Gap | {analysis['pain_gap']} |
+| Seriousness | {analysis['seriousness']} |
+
+### ⚡ Quick Hits for the Call
+- **Their Goal:** {analysis['season_goal']}
+- **Their Barrier:** {analysis['mental_barrier']}
+- **What Surprised Them:** {analysis['assessment_surprise']}
+- **Additional Context:** {analysis.get('anything_else', 'None')}
+
+---
+"""
+
+    # Generate the full script
+    script = CALL_1_FRAMEWORK.format(
+        name=name,
+        detective_notes=detective_str,
+        dream_notes=dream_str,
+        their_struggles=analysis.get("mental_barrier", "[ASK ON CALL]"),
+        what_theyve_tried="[ASK ON CALL — what have you tried before?]",
+        their_goal=analysis.get("season_goal", "[ASK ON CALL]"),
+        their_current_struggle=analysis.get("mental_barrier", "[their current struggle]"),
+        riders_or_drivers="drivers" if is_driver else "riders",
+        bike_or_car="car" if is_driver else "bike",
+        ridden_or_driven="driven" if is_driver else "ridden",
+        specific_thing_1="[SPECIFIC THING 1 from call]",
+        specific_thing_2="[SPECIFIC THING 2 from call]",
+    )
+
+    if is_driver:
+        script = swap_terminology(script, to_driver=True)
+        summary = swap_terminology(summary, to_driver=True)
+
+    return summary + script
+
+
+# =============================================================================
+# GOLD STANDARD CALL BENCHMARKS
+# Sam Hirst (2 calls → CLOSED) and Angela Brunson (2 calls → CLOSED)
+# These are the target patterns every call should aim for.
+# =============================================================================
+
+GOLD_STANDARD = {
+    "sam_hirst": {
+        "name": "Sam Hirst",
+        "outcome": "CLOSED — 2-call process",
+        "call_1_highlights": {
+            "opener": "Asked 'How did you find the mini course?' — let Sam talk freely, built natural rapport before any selling.",
+            "detective": "Spent 15+ minutes in pain discovery. Key moment: Sam admitted 'I've hit my potential previously but only in dribs and drabs' — Craig dug into WHY the consistency gaps happen.",
+            "dream": "Got Sam to articulate his own vision: 'I really want to get to my potential' — Craig let Sam sell himself on the outcome.",
+            "framework": "Positioned the struggle clearly: 'You're struggling with consistency. You've tried bits and pieces. You need a proven system.'",
+            "tiedowns": "Presented £4,000 investment naturally. Used 'If we had space and we both decide it's a good fit' — non-pressured.",
+            "push_pull": "Masterful: 'I have a few more calls this week with prospects, so I'd like to speak to everyone first before I decide who I'd like to work with.' — Craig is choosing THEM, not selling.",
+            "close": "Booked Call 2 with dad present (funding decision-maker). Set homework between calls.",
+        },
+        "call_2_highlights": {
+            "recap": "Opened with clear recap of situation, desire, and goal from Call 1.",
+            "coachability": "Asked directly: 'How coachable are you?' — qualified commitment before offering spot.",
+            "good_bad_news": "Used the 'good news/bad news' frame perfectly. Good: offered a spot. Bad: 'stuck with us for 6 months!'",
+            "close": "Took payment on the call. Smooth transition: 'From my notes you preferred [payment option], so I have that ready.'",
+        },
+        "key_techniques": [
+            "Let the prospect talk 60%+ of the time — Craig listened more than he spoke",
+            "Referenced pre-call data naturally without reading from a script",
+            "Used 'my notes' language throughout — positions Craig as selective interviewer, not salesperson",
+            "Dad was included on Call 2 (under 18/funding) — planned ahead in Call 1",
+            "Paint Two Pictures technique: 3 months with vs without the programme",
+        ],
     },
-    "pain_amplification": {
-        "label": "Pain Amplification",
-        "description": "Did Craig dig deep enough into the 7 Mistakes and emotional cost?",
-        "max_score": 10,
-        "checkpoints": [
-            "Referenced specific IMPROVE assessment scores",
-            "Asked 'how long has this been holding you back?'",
-            "Asked 'what's this costing you emotionally?'",
-            "Asked 'what have you tried to fix this?'",
-            "Asked 'if nothing changes, where will you be next season?'",
-            "Used silence effectively after pain questions",
-        ]
-    },
-    "push_pull": {
-        "label": "Push/Pull Execution",
-        "description": "Did Craig effectively use the Reverse Frame and the Takeaway?",
-        "max_score": 10,
-        "checkpoints": [
-            "Reverse Frame: 'I can only work with a handful' (Stage 2)",
-            "Takeaway: 'I won't be able to offer you anything today' (Stage 8)",
-            "Created scarcity without being pushy",
-            "Let the prospect ASK about the programme",
-            "Good News / Bad News delivery (Call 2)",
-        ]
-    },
-    "objection_handling": {
-        "label": "Objection Handling",
-        "description": "How effectively were doubts and objections addressed?",
-        "max_score": 10,
-        "checkpoints": [
-            "Addressed money objections with payment plan",
-            "Addressed 'need to think about it' with 'what's changed?'",
-            "Used testimonials/case studies to handle doubt",
-            "Kept pointing back to their stated pain and goals",
-            "Maintained frame — didn't get desperate",
-        ]
+    "angela_brunson": {
+        "name": "Angela Brunson",
+        "outcome": "CLOSED — 2-call process",
+        "call_1_highlights": {
+            "opener": "Asked 'Why did you decide to book a call?' — got Angela to state her own reasons for being there.",
+            "detective": "Deep discovery: Angela revealed specific frustrations — 'I know I can do better but something holds me back.' Craig asked what she'd tried before and how long the issue had persisted.",
+            "framework": "Crystal clear positioning: 'You're struggling with [X], You've tried [Y], You need [Z]' — textbook execution.",
+            "tiedowns": "Investment discussion felt natural. Used the platform vs 1-on-1 comparison (£9k → £4k) effectively.",
+            "credibility": "Shared relatable case studies that matched Angela's situation specifically.",
+        },
+        "call_2_highlights": {
+            "recap": "Started with exact recap: 'You want to [goal]. You're [struggling with X]. You tried [Y]. The £4,000 felt manageable.'",
+            "good_bad_news": "Perfect execution of the good news/bad news close.",
+            "objections": "When Angela hesitated, Craig asked 'What's changed since our first call?' — textbook objection isolation.",
+            "close": "Smooth payment collection on the call.",
+        },
+        "key_techniques": [
+            "Strong emotional connection — Angela felt heard and understood",
+            "Used Assessment data in conversation: referenced specific scores and gaps",
+            "Kept asking scaling questions: 'On a scale of 1-10...' to gauge progress",
+            "Two Pictures technique delivered with conviction — Angela could visualise both futures",
+            "Coachability check before offering spot — filters and flatters simultaneously",
+        ],
     },
 }
 
 
-def score_call_section(criteria_key, score, notes=""):
-    """Create a score entry for a call analysis section."""
-    return {
-        "criteria": criteria_key,
-        "score": score,
-        "notes": notes,
-        "max": ANALYSIS_CRITERIA[criteria_key]["max_score"]
+# =============================================================================
+# POST-CALL ANALYSIS (Mode 2)
+# Compares against Gold Standard (Sam Hirst & Angela Brunson)
+# =============================================================================
+
+SCRIPT_STAGES = [
+    "Stage 1: Opener & Rapport",
+    "Stage 2: The Detective — Pain Amplification",
+    "Stage 3: The Dream — Future Pacing",
+    "Stage 4: The Bridge — Credibility & Case Studies",
+    "Stage 5: The Framework — Present Solution",
+    "Stage 6: The Tiedowns",
+    "Stage 7: Book Call 2 / Close",
+]
+
+def analyze_call_transcript(transcript: str, candidate_answers: Optional[Dict] = None) -> Dict:
+    """Analyze a call transcript against the Championship Strategy Call Framework
+    and the Gold Standard calls (Sam Hirst & Angela Brunson).
+    Returns a structured analysis dict for display."""
+
+    transcript_lower = transcript.lower()
+    word_count = len(transcript.split())
+    analysis = {
+        "stages_detected": [],
+        "adherence_score": 0,
+        "pain_amplification_score": 0,
+        "push_pull_score": 0,
+        "objection_handling_score": 0,
+        "strengths": [],
+        "missed_opportunities": [],
+        "actionable_advice": [],
+        "gold_standard_comparison": [],
     }
 
+    # --- Stage Detection ---
+    stage_markers = {
+        "Opener & Rapport": ["how are you", "good to speak", "tell me why you decided to book", "mini course", "how did you find", "why you decided to book"],
+        "The Detective": ["biggest frustration", "what's been going on", "how long has this been", "what have you tried", "what's going through your mind", "struggles", "costs you", "what's it costing", "frustrated", "struggling"],
+        "The Dream": ["magic wand", "what would it look like", "full potential", "what would that mean", "if we could fix"],
+        "The Bridge": ["sam wilford", "case study", "similar position", "scale of 1-10", "programme would come to fixing", "moto2", "motogp"],
+        "Present Solution": ["you're struggling with", "you've tried", "you need", "proven process", "you're struggling"],
+        "The Tiedowns": ["investment", "£4,000", "4000", "4,000", "payment plan", "credit card", "chunk it down", "20 minutes a day", "commit to 20 minutes"],
+        "Book Call 2 / Close": ["reconnect tomorrow", "second call", "good news and bad news", "offer you a spot", "card details", "good news", "bad news", "let you know my decision"],
+    }
 
-def generate_analysis_report(scores, call_notes=""):
-    """Generate a formatted post-call analysis report."""
-    total_score = sum(s["score"] for s in scores)
-    max_score = sum(s["max"] for s in scores)
-    pct = (total_score / max_score * 100) if max_score > 0 else 0
+    detected_count = 0
+    for stage_name, markers in stage_markers.items():
+        found_markers = [m for m in markers if m in transcript_lower]
+        if found_markers:
+            detected_count += 1
+            analysis["stages_detected"].append(f"✅ {stage_name}")
+        else:
+            analysis["stages_detected"].append(f"❌ {stage_name} — NOT DETECTED")
 
-    report = []
-    report.append(f"# 📊 Post-Call Analysis Report")
-    report.append(f"**Overall Score: {total_score}/{max_score} ({pct:.0f}%)**")
-    report.append(f"**Generated:** {datetime.now().strftime('%d %b %Y %H:%M')}")
+    analysis["adherence_score"] = round((detected_count / len(stage_markers)) * 100)
 
-    if pct >= 80:
-        report.append("**Rating: 🟢 EXCELLENT** — Strong adherence to the framework")
-    elif pct >= 60:
-        report.append("**Rating: 🟡 GOOD** — Some missed opportunities")
+    # --- Pain Amplification Analysis ---
+    pain_keywords = ["frustrat", "struggle", "cost you", "how long", "what happens when", "worst",
+                     "difficult", "challenge", "stuck", "holding you back", "letting you down",
+                     "costing you", "what does that feel like", "tell me more", "dig deeper"]
+    pain_count = sum(transcript_lower.count(k) for k in pain_keywords)
+    analysis["pain_amplification_score"] = min(100, pain_count * 10)
+
+    if pain_count >= 7:
+        analysis["strengths"].append("🏆 Excellent pain amplification — matches Gold Standard depth (Sam Hirst level)")
+    elif pain_count >= 4:
+        analysis["strengths"].append("Good pain discovery, but could go deeper")
+        analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 1:** Craig spent 15+ min in The Detective. Sam said 'I've hit my potential but only in dribs and drabs' — Craig dug into WHY the consistency gaps happen. Aim for this depth.")
     else:
-        report.append("**Rating: 🔴 NEEDS WORK** — Significant deviation from framework")
+        analysis["missed_opportunities"].append("⚠️ Pain amplification too shallow — The Detective stage needs much more depth")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard:** In Sam's call, Craig asked follow-up after follow-up until Sam articulated his own pain. In Angela's call, she revealed 'I know I can do better but something holds me back.' You need 5+ pain-probing questions minimum.")
 
-    report.append("---")
-
-    # Individual scores
-    for s in scores:
-        criteria = ANALYSIS_CRITERIA[s["criteria"]]
-        bar = "█" * s["score"] + "░" * (s["max"] - s["score"])
-        report.append(f"### {criteria['label']}: {s['score']}/{s['max']}")
-        report.append(f"`{bar}`")
-        report.append(f"*{criteria['description']}*")
-        if s.get("notes"):
-            report.append(f"\n{s['notes']}")
-        report.append("")
-
-    # Call notes
-    if call_notes:
-        report.append("---")
-        report.append("### 📝 Additional Notes")
-        report.append(call_notes)
-
-    return "\n\n".join(report)
-
-
-# =============================================================================
-# GOLD STANDARD CALLS — Reference transcripts for comparison
-# =============================================================================
-_GOLD_DATA_PATH = "data/gold_standard_calls.json"
-
-def load_gold_standard():
-    """Load gold standard call transcripts from disk."""
-    import os
-    path = os.path.join(os.path.dirname(__file__), _GOLD_DATA_PATH)
-    if not os.path.exists(path):
-        return {}
-    with open(path, "r") as f:
-        return json.load(f)
-
-
-def get_gold_standard_list():
-    """Return a list of available gold standard calls for the UI."""
-    data = load_gold_standard()
-    calls = []
-    for key, entry in data.items():
-        for call_key in ["call_1", "call_2"]:
-            if call_key in entry:
-                calls.append({
-                    "id": f"{key}_{call_key}",
-                    "label": f"{entry['name']} — {entry[call_key]['title']} ({entry[call_key]['duration']})",
-                    "name": entry["name"],
-                    "discipline": entry["discipline"],
-                    "outcome": entry["outcome"],
-                    "notes": entry["notes"],
-                    "call_key": call_key,
-                    "entry_key": key,
-                })
-    return calls
-
-
-def get_gold_transcript(entry_key, call_key):
-    """Return transcript text for a specific gold standard call."""
-    data = load_gold_standard()
-    entry = data.get(entry_key, {})
-    call = entry.get(call_key, {})
-    return call.get("transcript", "")
-
-
-def compare_to_gold_standard(uploaded_transcript, gold_entry_key, gold_call_key):
-    """Compare an uploaded transcript against a gold standard call.
-
-    Returns a structured comparison with:
-    - Framework stage detection in both transcripts
-    - Key phrase matching
-    - Technique identification
-    """
-    gold_text = get_gold_transcript(gold_entry_key, gold_call_key)
-    if not gold_text:
-        return None
-
-    # Key phrases/techniques to look for in both transcripts
-    framework_markers = {
-        "Reverse Frame": [
-            "don't need to worry about being sold",
-            "handful of",
-            "capacity to work with",
-            "we'll both have a chance to go away and think",
-            "won't make a decision on it today",
-        ],
-        "Detective Questions": [
-            "what's your goal",
-            "what are your struggles",
-            "how long has this been holding you back",
-            "what have you tried",
-            "why is it important",
-        ],
-        "Pain Amplification": [
-            "what's this costing you",
-            "how does it feel",
-            "if nothing changes",
-            "surely you can't keep going",
-            "what are you going to do if",
-        ],
-        "5 Pillars": [
-            "pillar",
-            "mindset",
-            "preparation",
-            "flow state",
-            "feedback",
-            "funding",
-            "sponsorship",
-        ],
-        "Takeaway / Push": [
-            "won't be able to offer you anything today",
-            "I can't offer",
-            "need to speak with the other",
-            "I have some specific criteria",
-        ],
-        "Future Pacing": [
-            "3 months from now",
-            "two pictures",
-            "version 1",
-            "version 2",
-            "no action taken",
-            "invest in yourself",
-        ],
-        "Investment Discussion": [
-            "£4,000",
-            "4000",
-            "investment",
-            "payment plan",
-            "credit card",
-            "lifetime access",
-        ],
-        "Tiedowns": [
-            "does this sound like something you'd want",
-            "how does that sound",
-            "scale of 1",
-            "1 to 10",
-            "commit to 20 minutes",
-        ],
-        "Good News / Bad News": [
-            "good news and bad news",
-            "good news and some bad",
-            "offer you a spot",
-            "congratulations",
-        ],
-        "Coachability Check": [
-            "how coachable are you",
-            "follow the steps exactly",
-            "follow the program",
-            "committed to taking action",
-        ],
+    # --- Push/Pull Analysis ---
+    push_pull_markers = {
+        "reverse_frame": ["i need to complete my other interviews", "let me speak to everyone first", "i'll let you know my decision", "speak to everyone first", "other interviews"],
+        "takeaway": ["not saying there is space", "limited spots", "not sure we have room", "only work with", "only like to work with"],
+        "urgency": ["decision to make", "24 hours", "spots fill up", "this week", "decision to make in the next"],
+        "selectivity": ["who i'd like to work with", "decide who", "i'm choosing", "not everyone gets a spot"],
     }
 
-    results = {}
-    uploaded_lower = uploaded_transcript.lower()
-    gold_lower = gold_text.lower()
+    pp_count = 0
+    pp_found = []
+    for category, markers in push_pull_markers.items():
+        if any(m in transcript_lower for m in markers):
+            pp_count += 1
+            pp_found.append(category)
 
-    for technique, phrases in framework_markers.items():
-        uploaded_hits = []
-        gold_hits = []
-        for phrase in phrases:
-            if phrase.lower() in uploaded_lower:
-                uploaded_hits.append(phrase)
-            if phrase.lower() in gold_lower:
-                gold_hits.append(phrase)
+    analysis["push_pull_score"] = round((pp_count / len(push_pull_markers)) * 100)
 
-        results[technique] = {
-            "uploaded_found": len(uploaded_hits),
-            "uploaded_phrases": uploaded_hits,
-            "gold_found": len(gold_hits),
-            "gold_phrases": gold_hits,
-            "total_markers": len(phrases),
-            "match": "✅" if uploaded_hits else "❌",
-        }
+    if pp_count >= 3:
+        analysis["strengths"].append("🏆 Strong Push/Pull — matches Gold Standard selectivity positioning")
+    elif pp_count >= 1:
+        missing = [k for k in push_pull_markers if k not in pp_found]
+        analysis["missed_opportunities"].append(f"Push/Pull partially used but missing: {', '.join(missing)}")
+        analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 1:** Craig said 'I have a few more calls this week with prospects, so I'd like to speak to everyone first before I decide who I'd like to work with.' — This flips the dynamic: Craig is the one choosing, not selling.")
+    else:
+        analysis["missed_opportunities"].append("⚠️ No Push/Pull detected — this is critical for maintaining the 58% conversion rate")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard technique:** 'I need to complete my other interviews' + 'Not saying there is space yet' + '24-hour decision' = the triple Push/Pull that Sam & Angela both responded to.")
 
-    return results
+    # --- Objection Handling ---
+    objection_markers = ["what's changed", "real reason", "feel comfortable", "payment plan", "deposit",
+                        "company policy", "what would you need", "what's stopping you", "anything stopping"]
+    obj_count = sum(1 for m in objection_markers if m in transcript_lower)
+    analysis["objection_handling_score"] = min(100, obj_count * 25)
+
+    if obj_count >= 3:
+        analysis["strengths"].append("Handled objections effectively — multiple frameworks deployed")
+    elif obj_count >= 1:
+        analysis["strengths"].append("Some objection handling present")
+    elif "think about it" in transcript_lower or "not sure" in transcript_lower:
+        analysis["missed_opportunities"].append("Objections were raised but not handled with framework responses")
+        analysis["gold_standard_comparison"].append("📌 **Angela Brunson Call 2:** When Angela hesitated, Craig asked: 'What's changed since our first call?' — This isolates the real objection. Then: 'What would you need to feel comfortable moving forward?'")
+
+    # --- Two Pictures Technique ---
+    two_pictures_markers = ["two pictures", "version 1", "version 2", "3 months from now",
+                           "three months from now", "picture 1", "picture 2", "paint two"]
+    if any(m in transcript_lower for m in two_pictures_markers):
+        analysis["strengths"].append("✅ Used the 'Two Pictures' future-pacing technique")
+    else:
+        analysis["missed_opportunities"].append("Missed the 'Two Pictures' technique — this is a powerful closer")
+        analysis["gold_standard_comparison"].append("📌 **Gold Standard:** 'Let me paint two pictures: 3 months from now...' Version 1 = no action (still stuck). Version 2 = invested (breakthrough results). Both Sam and Angela responded strongly to this.")
+
+    # --- Coachability Check ---
+    coachability_markers = ["how coachable", "coachable are you", "follow the process", "follow our process", "committed to taking action"]
+    if any(m in transcript_lower for m in coachability_markers):
+        analysis["strengths"].append("✅ Performed coachability check — qualifies AND flatters the prospect")
+    else:
+        if word_count > 2000:  # Only flag on longer transcripts (likely full calls)
+            analysis["missed_opportunities"].append("No coachability check detected — this both qualifies and creates buy-in")
+            analysis["gold_standard_comparison"].append("📌 **Sam Hirst Call 2:** Craig asked: 'How coachable are you? I only like to work with people who are coachable, open to feedback, and ready to take action quickly.' — This filters AND makes them prove they deserve the spot.")
+
+    # --- Prospect Talk Ratio ---
+    # Estimate based on conversation markers
+    craig_markers = transcript_lower.count("craig") + transcript_lower.count("@") // 2
+    prospect_lines = len([l for l in transcript.split('\n') if l.strip() and 'craig' not in l.lower() and '@' not in l])
+    if craig_markers > 0 and prospect_lines > 0:
+        ratio = prospect_lines / (craig_markers + prospect_lines) * 100
+        if ratio >= 50:
+            analysis["strengths"].append(f"Good talk ratio — prospect speaking ~{int(ratio)}% of the time")
+        else:
+            analysis["gold_standard_comparison"].append(f"📌 **Gold Standard:** Craig lets the prospect talk 60%+ of the time. You're at ~{int(ratio)}%. Ask more questions, talk less.")
+
+    # --- Generate Actionable Advice ---
+    if analysis["adherence_score"] < 70:
+        analysis["actionable_advice"].append("📋 Follow the script flow more closely. The framework converts at 58% — trust the process.")
+    if analysis["pain_amplification_score"] < 50:
+        analysis["actionable_advice"].append("🔍 Spend more time in 'The Detective' stage. In Sam's gold standard call, Craig asked 5+ pain questions before moving to solutions. Ask: 'What does that cost you?' and 'How long has this been going on?'")
+    if analysis["push_pull_score"] < 50:
+        analysis["actionable_advice"].append("⚖️ Add more Push/Pull: 'I need to speak to my other candidates first' creates the scarcity that drives the 58% close rate.")
+    if analysis["objection_handling_score"] < 25 and word_count > 2000:
+        analysis["actionable_advice"].append("🛡️ Prepare objection responses: 'What's changed since Call 1?', 'What would you need to feel comfortable?', and always have the £500 deposit as a fallback.")
+    if not analysis["actionable_advice"]:
+        analysis["actionable_advice"].append("🏆 Strong call! You're matching the Gold Standard patterns. Focus on getting the commitment scale to 10/10 before moving to tiedowns.")
+
+    # --- Overall Score ---
+    analysis["overall_score"] = round(
+        (analysis["adherence_score"] * 0.35 +
+         analysis["pain_amplification_score"] * 0.30 +
+         analysis["push_pull_score"] * 0.20 +
+         analysis["objection_handling_score"] * 0.15)
+    )
+
+    return analysis
 
 
-def format_comparison_report(comparison, gold_label):
-    """Format a comparison result into a readable report."""
-    if not comparison:
-        return "No comparison data available."
+def format_analysis_report(analysis: Dict) -> str:
+    """Format the post-call analysis into a readable report."""
 
-    lines = []
-    lines.append(f"## 🏆 Gold Standard Comparison: {gold_label}")
-    lines.append("")
+    # Gold standard comparison section
+    gs_section = ""
+    if analysis.get("gold_standard_comparison"):
+        gs_section = "\n### 🏆 Gold Standard Comparison (Sam Hirst & Angela Brunson)\n"
+        gs_section += "\n".join("- " + g for g in analysis["gold_standard_comparison"])
+        gs_section += "\n"
 
-    total_found = 0
-    total_possible = 0
+    report = f"""
+## 📊 Post-Call Analysis Report
 
-    for technique, data in comparison.items():
-        total_found += data["uploaded_found"]
-        total_possible += data["total_markers"]
+### Overall Score: {analysis['overall_score']}/100
+*Benchmarked against Gold Standard: Sam Hirst (CLOSED) & Angela Brunson (CLOSED)*
 
-        status = data["match"]
-        uploaded_pct = (data["uploaded_found"] / data["total_markers"] * 100) if data["total_markers"] > 0 else 0
-        gold_pct = (data["gold_found"] / data["total_markers"] * 100) if data["total_markers"] > 0 else 0
+| Category | Score | Gold Standard Target |
+|----------|-------|---------------------|
+| Script Adherence | {analysis['adherence_score']}% | 85%+ |
+| Pain Amplification | {analysis['pain_amplification_score']}% | 70%+ |
+| Push/Pull Dynamics | {analysis['push_pull_score']}% | 75%+ |
+| Objection Handling | {analysis['objection_handling_score']}% | 50%+ |
 
-        lines.append(f"### {status} {technique}")
-        lines.append(f"- **Your call:** {data['uploaded_found']}/{data['total_markers']} markers detected ({uploaded_pct:.0f}%)")
-        lines.append(f"- **Gold standard:** {data['gold_found']}/{data['total_markers']} markers ({gold_pct:.0f}%)")
+### Script Stages Detected
+{chr(10).join(analysis['stages_detected'])}
 
-        if data["uploaded_phrases"]:
-            lines.append(f"  - ✅ Used: {', '.join(data['uploaded_phrases'][:3])}")
+### ✅ Strengths
+{chr(10).join('- ' + s for s in analysis['strengths']) if analysis['strengths'] else '- No specific strengths flagged'}
 
-        missing = [p for p in data["gold_phrases"] if p not in data["uploaded_phrases"]]
-        if missing:
-            lines.append(f"  - ❌ Missing: {', '.join(missing[:3])}")
-
-        lines.append("")
-
-    overall_pct = (total_found / total_possible * 100) if total_possible > 0 else 0
-    lines.insert(1, f"**Overall Match: {total_found}/{total_possible} ({overall_pct:.0f}%)**")
-    lines.insert(2, "")
-
-    return "\n".join(lines)
+### ⚠️ Missed Opportunities
+{chr(10).join('- ' + m for m in analysis['missed_opportunities']) if analysis['missed_opportunities'] else '- No missed opportunities — great job!'}
+{gs_section}
+### 🎯 Actionable Advice (to maintain 58% conversion)
+{chr(10).join('- ' + a for a in analysis['actionable_advice'])}
+"""
+    return report

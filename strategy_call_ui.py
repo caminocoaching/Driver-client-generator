@@ -7,22 +7,42 @@ Renders the application form, pre-call prep, and post-call analysis.
 import streamlit as st
 from datetime import datetime
 import json
-from strategy_call import (
-    APPLICATION_QUESTIONS,
-    CALL_FRAMEWORK,
-    ANALYSIS_CRITERIA,
-    generate_precall_prep,
-    generate_analysis_report,
-    score_call_section,
-    swap_terminology,
-    _detect_discipline,
-    _extract_indicators,
-    get_gold_standard_list,
-    get_gold_transcript,
-    compare_to_gold_standard,
-    format_comparison_report,
-    load_gold_standard,
-)
+try:
+    from strategy_call import (
+        APPLICATION_QUESTIONS,
+        CALL_FRAMEWORK,
+        ANALYSIS_CRITERIA,
+        generate_precall_prep,
+        generate_analysis_report,
+        score_call_section,
+        swap_terminology,
+        _detect_discipline,
+        _extract_indicators,
+        get_gold_standard_list,
+        get_gold_transcript,
+        compare_to_gold_standard,
+        format_comparison_report,
+        load_gold_standard,
+    )
+except ImportError:
+    # Driver app has different strategy_call.py structure
+    from strategy_call import (
+        APPLICATION_QUESTIONS,
+        swap_terminology,
+    )
+    # Provide stubs for missing functions
+    CALL_FRAMEWORK = {}
+    ANALYSIS_CRITERIA = {}
+    def generate_precall_prep(*a, **kw): return ""
+    def generate_analysis_report(*a, **kw): return ""
+    def score_call_section(*a, **kw): return {}
+    def _detect_discipline(data): return any(w in str(data).lower() for w in ['car', 'kart', 'f4', 'gt', 'porsche', 'formula'])
+    def _extract_indicators(*a, **kw): return {}
+    def get_gold_standard_list(): return []
+    def get_gold_transcript(*a, **kw): return ""
+    def compare_to_gold_standard(*a, **kw): return {}
+    def format_comparison_report(*a, **kw): return ""
+    def load_gold_standard(): return {}
 
 
 # =============================================================================
