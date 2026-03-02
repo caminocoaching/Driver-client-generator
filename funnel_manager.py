@@ -274,6 +274,9 @@ class Driver:
     payment_plan: bool = False
     monthly_payment: Optional[float] = None
 
+    # Race Results (dedicated structured storage — separate from Notes)
+    race_results_json: Optional[str] = None  # JSON string of race results
+
     # Metadata
     country: Optional[str] = None
     driver_type: Optional[str] = None
@@ -1342,18 +1345,6 @@ class DataLoader:
             if r.get('Date Day 2 Assessment'): driver.day2_complete_date = self._parse_date(r.get('Date Day 2 Assessment'))
             if r.get('Date Strategy Call'): driver.strategy_call_booked_date = self._parse_date(r.get('Date Strategy Call'))
             if r.get('Date Sale Closed'): driver.sale_closed_date = self._parse_date(r.get('Date Sale Closed'))
-
-            # Race Results — load from dedicated Airtable field into notes [RESULTS] block
-            _at_race_results = r.get('Race Results', '')
-            if _at_race_results and '[RESULTS]' not in (driver.notes or ''):
-                import json as _rrj
-                try:
-                    _parsed = _rrj.loads(_at_race_results) if isinstance(_at_race_results, str) else _at_race_results
-                    if isinstance(_parsed, list) and _parsed:
-                        _results_block = f"[RESULTS]\n{_rrj.dumps(_parsed)}\n[/RESULTS]"
-                        driver.notes = f"{_results_block}\n{driver.notes or ''}" if driver.notes else _results_block
-                except Exception:
-                    pass
             
             # Preferred name (from social media / Also Known As field)
             aka = r.get('Also Known As', '')
@@ -1418,6 +1409,10 @@ class DataLoader:
             if r.get('Notes'): driver.notes = r.get('Notes')
             if r.get('Championship'): driver.championship = r.get('Championship')
             if r.get('Follow Up Date'): driver.follow_up_date = self._parse_date(r.get('Follow Up Date'))
+
+            # Race Results — dedicated Airtable field (preferred) or fallback to Notes
+            if r.get('Race Results'):
+                driver.race_results_json = r.get('Race Results')
             
             # Revenue (Financials)
             if r.get('Revenue'): 
@@ -1591,12 +1586,6 @@ class DataLoader:
 
                 # clean empty
                 clean_data = {k: v for k, v in data.items() if v is not None}
-
-                # Race Results — save structured JSON to dedicated Airtable field
-                _race_json = parse_race_results(driver.notes or "")
-                if _race_json:
-                    import json as _rj
-                    clean_data["Race Results"] = _rj.dumps(_race_json)
                 
                 success = self.airtable.upsert_driver(clean_data)
                 if success:
@@ -1627,13 +1616,18 @@ class DataLoader:
                 # Optional fields
                 if kwargs.get('notes'):
                     at_data['Notes'] = kwargs['notes']
-                    # Also sync structured race results to dedicated field
-                    _rr = parse_race_results(kwargs['notes'])
-                    if _rr:
-                        import json as _rrj2
-                        at_data['Race Results'] = _rrj2.dumps(_rr)
                 if kwargs.get('follow_up_date'):
                     at_data['Follow Up Date'] = kwargs['follow_up_date'].strftime('%Y-%m-%d')
+                # Race Results + Season Summary — dedicated Airtable fields
+                if kwargs.get('race_results_json'):
+                    at_data['Race Results'] = kwargs['race_results_json']
+                if kwargs.get('season_summary'):
+                    at_data['Season Summary'] = kwargs['season_summary']
+                # Per-round results columns (R1 Circuit, R1 Qual, R1 Race 1, etc.)
+                import re as _re_rnd
+                for k, v in kwargs.items():
+                    if _re_rnd.match(r'^R\d+ ', k):
+                        at_data[k] = v
                 # Include stage if provided (avoids a second Airtable call)
                 if kwargs.get('stage'):
                     stage_val = kwargs['stage']
@@ -3251,10 +3245,10 @@ class FunnelDashboard:
 
         print(f"[Delete] Removed {email} from memory (keys checked: {keys_to_remove})")
 
-    def add_new_driver(self, email: str, first_name: str, last_name: str, fb_url: str, ig_url: str = "", championship: str = "", notes: str = None, follow_up_date: datetime = None) -> bool:
+    def add_new_driver(self, email: str, first_name: str, last_name: str, fb_url: str, ig_url: str = "", championship: str = "", notes: str = None, follow_up_date: datetime = None, **kwargs) -> bool:
         """Add a new driver to the database"""
         # Save to Local CSV first (Redundancy)
-        success = self.data_loader.add_new_driver_to_db(email, first_name, last_name, fb_url, ig_url=ig_url, championship=championship, notes=notes, follow_up_date=follow_up_date)
+        success = self.data_loader.add_new_driver_to_db(email, first_name, last_name, fb_url, ig_url=ig_url, championship=championship, notes=notes, follow_up_date=follow_up_date, **kwargs)
         
         if success:
             # Update In-Memory - pass first_name and last_name to ensure they're set
@@ -3270,6 +3264,7 @@ class FunnelDashboard:
             if notes: driver.notes = notes
             if championship: driver.championship = championship
             if follow_up_date: driver.follow_up_date = follow_up_date
+            if kwargs.get('race_results_json'): driver.race_results_json = kwargs['race_results_json']
 
             # NOTE: Airtable sync already handled inside add_new_driver_to_db()
             # Removed duplicate migrate_driver_to_airtable() call that was causing
@@ -3655,7 +3650,7 @@ class FunnelDashboard:
 
         lines.extend([
             "",
-            "🆘 DRIVERS NEEDING RESCUE",
+            "🆘 RIDERS NEEDING RESCUE",
             "-" * 40,
             f"Day 1 Rescue Needed:          {len(rescue_needed['day1_rescue'])}",
             f"Day 2 Rescue Needed:          {len(rescue_needed['day2_rescue'])}",
@@ -3841,7 +3836,7 @@ class SocialFinder:
         links = {}
         
         # Level 1: Core Discovery
-        links['🔍 Core Discovery'] = make_link(f'"{name}" AND ("racing" OR "racer" OR "motorsport" OR "car")')
+        links['🔍 Core Discovery'] = make_link(f'"{name}" AND ("racing" OR "racer" OR "motorsport" OR "bike")')
         
         # Level 2: Socials (Direct Platform Search preferred by User)
         # Facebook: Direct search (shows mutuals)
@@ -4169,10 +4164,15 @@ class RaceResultManager:
         name = result['original_name']
         match = result['match']
         
-        # Split first name
-        first_name = name.split(' ')[0].title()
+        # Split first name — clean handle-like names (e.g. "Camerondunker3" → "Cameron")
+        from ui_components import _clean_first_name
+        first_name = _clean_first_name(name.split(' ')[0])
         if match and match.first_name:
-             first_name = match.first_name
+             first_name = _clean_first_name(match.first_name)
+        # FALLBACK: If still a long single word (likely IG handle like "Johnnylytras")
+        # but original_name has a proper name with space, prefer timing sheet name
+        if len(first_name) > 8 and ' ' not in first_name and ' ' in name:
+            first_name = name.split(' ')[0].title()
              
         # TEMPLATE: SEQUENCE 1 (Qualifying Struggle -> Free Training)
         # Context: saw them race, maybe qualified well but finished lower, or just general outreach
@@ -4248,6 +4248,7 @@ def parse_race_results(notes: str) -> list:
 def save_race_result(driver, circuit: str, championship: str, session_results: list,
                      event_date: str = "") -> str:
     """Append race results for a driver. Returns updated notes string.
+    Also updates driver.race_results_json for the dedicated Airtable field.
 
     Args:
         driver: Driver object (needs .notes)
@@ -4263,7 +4264,15 @@ def save_race_result(driver, circuit: str, championship: str, session_results: l
     if not event_date:
         event_date = datetime.now().strftime("%Y-%m-%d")
 
-    existing = parse_race_results(driver.notes or "")
+    # Load existing results — prefer dedicated field, fall back to Notes
+    existing = []
+    if driver.race_results_json:
+        try:
+            existing = json.loads(driver.race_results_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if not existing:
+        existing = parse_race_results(driver.notes or "")
 
     # Add new results (one entry per session)
     for sr in session_results:
@@ -4293,8 +4302,11 @@ def save_race_result(driver, circuit: str, championship: str, session_results: l
     # Sort by date descending
     existing.sort(key=lambda x: x.get("date", ""), reverse=True)
 
-    # Build the results block
+    # Store in dedicated field on driver object
     results_json = json.dumps(existing)
+    driver.race_results_json = results_json
+
+    # Build the results block for Notes (backward compat)
     results_block = f"[RESULTS]\n{results_json}\n[/RESULTS]"
 
     # Replace or insert in notes
@@ -4312,7 +4324,87 @@ def save_race_result(driver, circuit: str, championship: str, session_results: l
     return notes
 
 
-def get_results_summary(notes: str) -> dict:
+def build_round_fields(race_results_json: str) -> dict:
+    """Convert structured race result JSON into per-round Airtable field values.
+
+    Groups sessions by event date + circuit to form rounds (chronological),
+    then maps qualifying, race 1, race 2 sessions into the R1–R12 columns.
+
+    Returns dict like:
+        {"R1 Circuit": "Phillip Island", "R1 Qual": "P3 · 1:32.456",
+         "R1 Race 1": "P5 · 1:33.123", "R1 Race 2": "P4 · 1:32.890", ...}
+    """
+    import json as _json
+    if not race_results_json:
+        return {}
+    try:
+        results = _json.loads(race_results_json)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(results, list) or not results:
+        return {}
+
+    # Group by (date, circuit) → list of sessions
+    from collections import OrderedDict
+    rounds = OrderedDict()
+    for r in sorted(results, key=lambda x: x.get("date", "")):
+        key = (r.get("date", ""), r.get("circuit", ""))
+        if key not in rounds:
+            rounds[key] = []
+        rounds[key].append(r)
+
+    fields = {}
+    # Clear all 12 rounds first (so removed results don't leave stale data)
+    for i in range(1, 13):
+        fields[f"R{i} Circuit"] = ""
+        fields[f"R{i} Qual"] = ""
+        fields[f"R{i} Race 1"] = ""
+        fields[f"R{i} Race 2"] = ""
+
+    for round_num, ((rd_date, rd_circuit), sessions) in enumerate(rounds.items(), start=1):
+        if round_num > 12:
+            break  # Max 12 rounds in Airtable columns
+
+        fields[f"R{round_num} Circuit"] = rd_circuit or rd_date
+
+        # Categorise sessions
+        quals = [s for s in sessions if s.get("type") in ("qualify", "qualifying")]
+        races = [s for s in sessions if s.get("type") == "race"]
+        practice = [s for s in sessions if s.get("type") == "practice"]
+
+        def _format_result(session):
+            """Format a session result as 'P5 · 1:32.456' or 'DNF'."""
+            status = session.get("status", "Normal")
+            if status and status != "Normal":
+                return status  # DNF, DNS, etc.
+            pos = session.get("pos")
+            lap = session.get("best_lap", "")
+            parts = []
+            if pos:
+                parts.append(f"P{pos}")
+            if lap and lap != "00.000":
+                parts.append(lap)
+            return " · ".join(parts) if parts else ""
+
+        # Qualifying — best qualifying session
+        if quals:
+            best_qual = min(quals, key=lambda s: s.get("pos") or 999)
+            fields[f"R{round_num} Qual"] = _format_result(best_qual)
+        elif practice:
+            # Use best practice as "Qual" if no qualifying data
+            best_prac = min(practice, key=lambda s: s.get("pos") or 999)
+            fields[f"R{round_num} Qual"] = _format_result(best_prac) + " (P)" if _format_result(best_prac) else ""
+
+        # Races — up to 2 races per round
+        if len(races) >= 1:
+            fields[f"R{round_num} Race 1"] = _format_result(races[0])
+        if len(races) >= 2:
+            fields[f"R{round_num} Race 2"] = _format_result(races[1])
+
+    return fields
+
+
+def get_results_summary(notes: str, race_results_json: str = None) -> dict:
     """Get a quick summary of driver's race history.
 
     Returns dict with:
@@ -4322,10 +4414,26 @@ def get_results_summary(notes: str) -> dict:
         best_circuit: circuit where best position was achieved
         latest: most recent result dict
         trend: "improving", "declining", "stable", or "new"
+        rounds_completed: number of distinct race weekends
+        round_by_round: list of {date, circuit, best_pos} per weekend
+        season_narrative: human-readable season description for AI
+        season_summary_line: one-liner for Airtable 'Season Summary' field
     """
-    results = parse_race_results(notes)
+    import json as _json
+
+    # Prefer dedicated field, fall back to Notes
+    results = []
+    if race_results_json:
+        try:
+            results = _json.loads(race_results_json)
+            if isinstance(results, list):
+                results = sorted(results, key=lambda x: x.get('date', ''), reverse=True)
+        except (ValueError, TypeError):
+            pass
     if not results:
-        return {"count": 0, "trend": "new"}
+        results = parse_race_results(notes)
+    if not results:
+        return {"count": 0, "trend": "new", "season_narrative": "", "season_summary_line": ""}
 
     # Filter out DNS/DNF for position stats
     valid = [r for r in results if r.get("status") == "Normal" and r.get("pos")]
@@ -4344,10 +4452,25 @@ def get_results_summary(notes: str) -> dict:
     # Best lap across all sessions
     lap_times = [r["best_lap"] for r in valid if r.get("best_lap") and r["best_lap"] != "00.000"]
     if lap_times:
-        summary["best_lap"] = min(lap_times)  # Lexicographic works for MM:SS.mmm format
+        summary["best_lap"] = min(lap_times)
 
-    # Trend: compare last 2 race weekends
+    # ── Round-by-round breakdown ──
     race_dates = sorted(set(r["date"] for r in races), reverse=True) if races else []
+    round_by_round = []
+    for rd_date in sorted(race_dates):  # chronological order
+        rd_races = [r for r in races if r["date"] == rd_date]
+        rd_best = min(r["pos"] for r in rd_races)
+        rd_circuit = rd_races[0].get("circuit", "")
+        round_by_round.append({
+            "date": rd_date,
+            "circuit": rd_circuit,
+            "best_pos": rd_best,
+            "races": len(rd_races),
+        })
+    summary["rounds_completed"] = len(race_dates)
+    summary["round_by_round"] = round_by_round
+
+    # ── Trend: compare last 2 race weekends ──
     if len(race_dates) >= 2:
         latest_races = [r for r in races if r["date"] == race_dates[0]]
         prev_races = [r for r in races if r["date"] == race_dates[1]]
@@ -4362,5 +4485,61 @@ def get_results_summary(notes: str) -> dict:
                 summary["trend"] = "stable"
     else:
         summary["trend"] = "new"
+
+    # ── Extended trend: over 3+ rounds ──
+    if len(round_by_round) >= 3:
+        positions = [rd["best_pos"] for rd in round_by_round]
+        # Check if positions are monotonically improving (lower = better)
+        improving_count = sum(1 for i in range(1, len(positions)) if positions[i] < positions[i-1])
+        declining_count = sum(1 for i in range(1, len(positions)) if positions[i] > positions[i-1])
+        if improving_count >= len(positions) - 1:
+            summary["extended_trend"] = "consistently_improving"
+        elif declining_count >= len(positions) - 1:
+            summary["extended_trend"] = "consistently_declining"
+        elif improving_count > declining_count:
+            summary["extended_trend"] = "generally_improving"
+        elif declining_count > improving_count:
+            summary["extended_trend"] = "generally_declining"
+        else:
+            summary["extended_trend"] = "mixed"
+
+        # Season best vs latest
+        if positions[-1] <= min(positions):
+            summary["at_season_best"] = True
+        summary["season_best_round"] = round_by_round[positions.index(min(positions))]
+
+    # ── Season Narrative (for AI message context) ──
+    narrative_parts = []
+    if summary.get("best_pos"):
+        narrative_parts.append(f"Best result: P{summary['best_pos']} at {summary.get('best_circuit', 'unknown')}")
+    if len(round_by_round) >= 2:
+        pos_str = " → ".join(f"P{rd['best_pos']}" for rd in round_by_round[-4:])  # last 4 rounds
+        narrative_parts.append(f"Recent form: {pos_str}")
+    trend = summary.get("trend", "new")
+    ext_trend = summary.get("extended_trend", "")
+    if ext_trend == "consistently_improving":
+        narrative_parts.append("Strong upward trajectory across the season")
+    elif ext_trend == "consistently_declining":
+        narrative_parts.append("Results have dropped off through the season")
+    elif trend == "improving":
+        narrative_parts.append("Improving from last round")
+    elif trend == "declining":
+        narrative_parts.append("Dropped back from last round")
+    if summary.get("at_season_best"):
+        narrative_parts.append("Currently at season-best form")
+    summary["season_narrative"] = ". ".join(narrative_parts)
+
+    # ── Season Summary Line (for Airtable field) ──
+    summary_parts = []
+    if summary.get("best_pos"):
+        summary_parts.append(f"Best: P{summary['best_pos']} ({summary.get('best_circuit', '')})")
+    if summary.get("rounds_completed"):
+        summary_parts.append(f"{summary['rounds_completed']} rounds")
+    trend_emoji = {"improving": "📈", "declining": "📉", "stable": "➡️", "new": "🆕"}
+    summary_parts.append(f"{trend_emoji.get(trend, '')} {trend.title()}")
+    if round_by_round:
+        latest_rd = round_by_round[-1]
+        summary_parts.append(f"Last: P{latest_rd['best_pos']} at {latest_rd['circuit']}")
+    summary["season_summary_line"] = " | ".join(summary_parts)
 
     return summary

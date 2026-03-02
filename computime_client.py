@@ -196,6 +196,20 @@ def _parse_classification_pdf(pdf_bytes: bytes) -> Optional[Dict]:
     }
 
 
+# Pre-discovered MeetIDs for major championships (avoids postback scraping).
+# Users can link new meetings via a one-time URL paste.
+KNOWN_MEETINGS = {
+    "ASBK": {
+        "name": "Australian Superbike Championship",
+        "meetings": {
+            "2026": [
+                {"meet_id": "17437", "name": "ASBK Round 1 (with WorldSBK)", "date": "2026-02-20", "location": "Phillip Island (Vic)"},
+            ],
+        },
+    },
+}
+
+
 class ComputimeClient:
     """Client for fetching and parsing Computime race timing results."""
 
@@ -206,6 +220,138 @@ class ComputimeClient:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ComputimeClient/1.0"
         })
+
+    def fetch_meetings(self, year: int = 2026) -> List[Dict]:
+        """Fetch all meetings from Computime for a given year.
+
+        Scrapes the ASP.NET results page. Returns list of meeting dicts with:
+            name, date, location, row_index (for __doPostBack), meet_id (if known)
+        """
+        url = f"{self.BASE_URL}/Web%20Services/Computime%20-%20WebServer%20Meetings/ResultsNew?ResultDate={year}"
+        try:
+            resp = self.session.get(url, timeout=15)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[Computime] Error fetching {year} meetings: {e}")
+            return []
+
+        html = resp.text
+        meetings = []
+
+        # Split into table rows — use finditer to handle ASP.NET whitespace
+        for tr_match in re.finditer(r'<tr\s', html):
+            start = tr_match.start()
+            end_tr = html.find('</tr>', start)
+            if end_tr < 0:
+                continue
+            row_html = html[start:end_tr + 5]
+            # Find the row index from onclick="...Select$N..."
+            idx_match = re.search(r'Select\$(\d+)', row_html)
+            if not idx_match:
+                continue
+
+            row_idx = int(idx_match.group(1))
+
+            # Extract cell content — handles both <font>wrapped</font> and plain <td> formats
+            # (Computime renders differently depending on User-Agent)
+            fonts = re.findall(r'<font[^>]*>(.*?)</font>', row_html, re.DOTALL)
+            cells = [f.strip() for f in fonts if '<input' not in f and f.strip()]
+
+            if len(cells) < 4:
+                # Fallback: parse <td> content directly (no font wrapping)
+                tds = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+                cells = []
+                for td in tds:
+                    # Strip any inner tags
+                    clean = re.sub(r'<[^>]+>', '', td).strip()
+                    if clean and 'View' not in clean and len(clean) > 0:
+                        cells.append(clean)
+
+            # Cells should be: date, meeting_name, round, location, location_short
+            if len(cells) < 4:
+                continue
+
+            date_str = cells[0]
+            name = cells[1]
+            round_num = cells[2]
+            location = cells[3]
+
+            # Convert DD/MM/YYYY to ISO
+            parts = date_str.split('/')
+            if len(parts) == 3:
+                iso_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+            else:
+                iso_date = date_str
+
+            meetings.append({
+                'name': name.strip(),
+                'date': iso_date,
+                'location': location.strip(),
+                'round': round_num.strip(),
+                'row_index': row_idx,
+            })
+
+        # Enrich with known MeetIDs
+        for m in meetings:
+            for champ_data in KNOWN_MEETINGS.values():
+                year_meetings = champ_data.get('meetings', {}).get(str(year), [])
+                for km in year_meetings:
+                    if km.get('date') == m['date'] or \
+                       km.get('name', '').lower() in m['name'].lower():
+                        m['meet_id'] = km['meet_id']
+
+        return meetings
+
+    def discover_meet_id(self, year: int, row_index: int) -> Optional[str]:
+        """Simulate ASP.NET postback to discover a meeting's MeetID.
+
+        Uses the __doPostBack mechanism from the results listing page.
+        This makes a POST request and follows the redirect to get the MeetID.
+
+        Args:
+            year: Results year page
+            row_index: Row index from fetch_meetings()
+
+        Returns:
+            MeetID string or None
+        """
+        url = f"{self.BASE_URL}/Web%20Services/Computime%20-%20WebServer%20Meetings/ResultsNew?ResultDate={year}"
+        try:
+            # First GET to grab viewstate etc.
+            resp = self.session.get(url, timeout=15)
+            resp.raise_for_status()
+            html = resp.text
+
+            # Extract ASP.NET form fields
+            viewstate = re.search(r'__VIEWSTATE[^>]*value="([^"]*)"', html)
+            viewstate_gen = re.search(r'__VIEWSTATEGENERATOR[^>]*value="([^"]*)"', html)
+            event_val = re.search(r'__EVENTVALIDATION[^>]*value="([^"]*)"', html)
+
+            if not viewstate:
+                return None
+
+            data = {
+                '__EVENTTARGET': 'ctl00$MainContent$ResultsGV',
+                '__EVENTARGUMENT': f'Select${row_index}',
+                '__VIEWSTATE': viewstate.group(1),
+            }
+            if viewstate_gen:
+                data['__VIEWSTATEGENERATOR'] = viewstate_gen.group(1)
+            if event_val:
+                data['__EVENTVALIDATION'] = event_val.group(1)
+
+            # POST to trigger the postback — follow redirect to results page
+            resp2 = self.session.post(url, data=data, timeout=15, allow_redirects=True)
+            # The redirect URL should contain MeetID
+            final_url = resp2.url
+            m = re.search(r'MeetID=(\d+)', final_url)
+            if m:
+                return m.group(1)
+
+        except Exception as e:
+            print(f"[Computime] Error discovering MeetID: {e}")
+
+        return None
 
     @staticmethod
     def extract_meet_id(url_or_id: str) -> Optional[str]:
