@@ -1701,11 +1701,16 @@
 
     // Look up driver-specific AI message from the per-driver dictionary,
     // falling back to the single default message if no match found.
+    // IMPORTANT: Also checks outreach mode — if end_of_season, stale race-weekend
+    // messages in storage are overridden with fresh end-of-season fallbacks.
     async function loadAiMessage() {
       try {
-        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver'], async (data) => {
+        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver', 'ag_outreach_mode', 'ag_championship'], async (data) => {
           const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
           const msgs = (data && data.ag_ai_messages) || {};
+          const outreachMode = data.ag_outreach_mode || 'race_weekend';
+          const championship = data.ag_championship || '';
+          const isEos = (outreachMode === 'end_of_season');
 
           // Try exact match, then partial match (first name or last name)
           let template = msgs[driverName];
@@ -1726,15 +1731,26 @@
             template = data.ag_ai_outreach_msg;
           }
 
+          // MODE CHECK: If end_of_season mode but the cached message is race-weekend style,
+          // override with a fresh end-of-season fallback.
+          if (isEos && template && championship) {
+            const lower = template.toLowerCase();
+            const looksLikeRaceWeekend = lower.includes('weekend') || lower.includes('at the') || lower.includes('how\'s the car');
+            if (looksLikeRaceWeekend) {
+              console.log('[AG] Overriding stale race-weekend AI message with end-of-season fallback');
+              template = null;
+            }
+          }
+
           if (template) {
             updateAiButton(template.replace(/\\n/g, '\n'));
+            const nameEl = aiBtn.querySelector('.ag-tmpl-name');
+            if (nameEl && isEos) nameEl.textContent = '🏆 AI End of Season';
           } else {
             // No AI message from app — show fallback outreach
             const fallback = await getFallbackAiMessage();
             updateAiButton(fallback);
             const nameEl = aiBtn.querySelector('.ag-tmpl-name');
-            const modeData = await new Promise(r => chrome.storage.local.get('ag_outreach_mode', r));
-            const isEos = (modeData.ag_outreach_mode === 'end_of_season');
             if (nameEl) nameEl.textContent = isEos ? '🏆 AI End of Season' : '🤖 AI Race Outreach';
           }
         });
