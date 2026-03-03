@@ -171,7 +171,7 @@ def _gemini_extract(api_key: str, championship_query: str, content: str) -> Dict
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
     except ImportError:
         # Fallback: use REST API directly
         return _gemini_extract_rest(api_key, championship_query, content)
@@ -211,7 +211,7 @@ def _gemini_extract_rest(api_key: str, championship_query: str, content: str) ->
         championship_query=championship_query,
         content=_safe_content,
     )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
