@@ -14,6 +14,7 @@
   let lastDriver = '';
   let lastAiMsg = '';
   let lastAiMessagesJson = '';
+  let lastOutreachMode = '';
 
   // Guard: check if extension context is still valid before using chrome APIs
   function isExtensionValid() {
@@ -98,6 +99,14 @@
         lastDriver = driver;
         chrome.storage.local.set({ ag_current_driver: driver });
         console.log('[AG] Driver synced to extension:', driver);
+      }
+
+      // Sync outreach mode (race_weekend or end_of_season)
+      const outreachMode = (el.dataset.outreachMode || el.getAttribute('data-outreach-mode') || '').trim();
+      if (outreachMode && outreachMode !== lastOutreachMode) {
+        lastOutreachMode = outreachMode;
+        chrome.storage.local.set({ ag_outreach_mode: outreachMode });
+        console.log('[AG] Outreach mode synced to extension:', outreachMode);
       }
 
       // Sync AI-generated outreach message (single — last card rendered)

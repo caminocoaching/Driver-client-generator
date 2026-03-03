@@ -1586,35 +1586,78 @@ def render_race_outreach(dashboard):
                 key="event_name_input"
             )
 
+    # ── Outreach Mode Selector ──
+    # Auto-detect: if ALL rounds of the selected championship have finished → default to End of Season
+    _season_over = False
+    if selected_champ and selected_champ != "➕ Add New...":
+        _cal = RACE_CALENDARS.get(selected_champ, {})
+        if _cal and _cal.get('rounds'):
+            _all_finished = all(
+                datetime.strptime(rd['end'], "%Y-%m-%d").date() < _today
+                for rd in _cal['rounds']
+            )
+            _season_over = _all_finished
+
+    # Set default mode if not already set by user
+    if '_outreach_mode' not in st.session_state and _season_over:
+        st.session_state['_outreach_mode'] = "🏆 End of Season"
+
+    _mode_col1, _mode_col2 = st.columns([3, 1])
+    with _mode_col1:
+        if _season_over:
+            st.caption("🏆 Season complete — End of Season outreach enabled")
+    with _mode_col2:
+        _outreach_mode = st.radio(
+            "Outreach Mode",
+            options=["🏁 Race Weekend", "🏆 End of Season"],
+            key="_outreach_mode",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    _is_end_of_season = _outreach_mode == "🏆 End of Season"
+
     # ── Show selected event summary ──
     if event_name_input:
         event_name = event_name_input
     else:
         event_name = "the circuit"
 
-    if selected_champ and selected_champ != "➕ Add New..." and event_name_input:
-        st.markdown(
-            f'<div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:12px 20px;'
-            f'border-radius:10px;margin:8px 0;border-left:4px solid '
-            f'{RACE_CALENDARS.get(selected_champ, {}).get("color", "#4CAF50")};">'
-            f'<span style="font-size:18px;font-weight:700;color:#fff;">'
-            f'🏁 {selected_champ}</span>'
-            f'<span style="color:#aaa;margin-left:12px;font-size:15px;">{event_name}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    if selected_champ and selected_champ != "➕ Add New...":
+        if _is_end_of_season:
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#1a1a2e,#2d1b4e);padding:12px 20px;'
+                f'border-radius:10px;margin:8px 0;border-left:4px solid #f59e0b;">'
+                f'<span style="font-size:18px;font-weight:700;color:#fbbf24;">'
+                f'🏆 End of Season Outreach</span>'
+                f'<span style="color:#d4a0ff;margin-left:12px;font-size:15px;">{selected_champ}</span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        elif event_name_input:
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:12px 20px;'
+                f'border-radius:10px;margin:8px 0;border-left:4px solid '
+                f'{RACE_CALENDARS.get(selected_champ, {}).get("color", "#4CAF50")};">'
+                f'<span style="font-size:18px;font-weight:700;color:#fff;">'
+                f'🏁 {selected_champ}</span>'
+                f'<span style="color:#aaa;margin-left:12px;font-size:15px;">{event_name}</span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
     # ── Chrome extension sync helper ──
     def _render_ext_sync_div():
-        """Inject hidden div for Chrome extension to read circuit/champ/AI message."""
+        """Inject hidden div for Chrome extension to read circuit/champ/AI message/outreach mode."""
         import json as _json_mod
         _c = (event_name_input or "").replace('"', '&quot;')
         _ch = st.session_state.get('global_championship', '').replace('"', '&quot;')
         _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
         _ai_dict = st.session_state.get('_ext_ai_messages', {})
         _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
+        _mode = "end_of_season" if _is_end_of_season else "race_weekend"
         st.markdown(
             f'<div id="ag-active-circuit" data-circuit="{_c}" data-champ="{_ch}" '
+            f'data-outreach-mode="{_mode}" '
             f'data-ai-msg="{_ai}" data-ai-messages="{_ai_json}" style="display:none;"></div>',
             unsafe_allow_html=True
         )
