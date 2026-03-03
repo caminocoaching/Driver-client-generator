@@ -1247,27 +1247,20 @@ def render_race_outreach(dashboard):
                                     st.session_state.session_added_championships = _sa
                                 _persist_championships()
                                 _msgs.append(f"📅 {len(_new_cal['rounds'])} rounds added")
-                        # 2. Import drivers
+                        # 2. Queue drivers for outreach list (NOT pipeline)
+                        # They'll appear in the driver list below, ready to search & message
                         if _has_drivers:
-                            _imported = 0
+                            _driver_names = []
                             for d in _rdata.get('drivers', []):
                                 _first = d.get('first_name', '').strip()
                                 _last = d.get('last_name', '').strip()
                                 if _first and _last:
-                                    _slug = f"{_first}_{_last}".lower().replace(" ", "_")
-                                    _email = f"no_email_{_slug}"
-                                    _notes_parts = []
-                                    if d.get('number'): _notes_parts.append(f"#{d['number']}")
-                                    if d.get('nationality'): _notes_parts.append(d['nationality'])
-                                    if d.get('team'): _notes_parts.append(d['team'])
-                                    _notes = " · ".join(_notes_parts)
-                                    if dashboard.add_new_driver(
-                                        _email, _first, _last, "", "",
-                                        championship=_champ_name, notes=_notes
-                                    ):
-                                        dashboard.update_driver_stage(_email, FunnelStage.CONTACT)
-                                        _imported += 1
-                            _msgs.append(f"🏎️ {_imported} drivers imported")
+                                    _driver_names.append(f"{_first} {_last}")
+                            if _driver_names:
+                                # Store names for the outreach list to pick up
+                                st.session_state['_research_driver_names'] = _driver_names
+                                st.session_state['_run_analysis_on_update'] = True
+                                _msgs.append(f"🏎️ {len(_driver_names)} drivers queued for outreach")
                         # 3. Auto-select championship — reset widget keys so UI updates
                         st.session_state.global_championship = _champ_name
                         st.session_state.pop('_outreach_champ', None)      # Force selectbox to re-read from global_championship
@@ -1378,31 +1371,20 @@ def render_race_outreach(dashboard):
                     import pandas as _pd_drv
                     st.dataframe(_pd_drv.DataFrame(_drv_rows), use_container_width=True, hide_index=True)
 
-                    # Bulk import button (individual)
-                    if st.button(f"⚡ Import {len(_drivers)} Drivers Only", key="research_import_drivers"):
-                        _imported = 0
-                        _prog = st.progress(0)
-                        for _idx, d in enumerate(_drivers):
+                    # Send drivers to outreach list (individual button)
+                    if st.button(f"⚡ Send {len(_drivers)} Drivers to Outreach", key="research_import_drivers"):
+                        _driver_names = []
+                        for d in _drivers:
                             _first = d.get('first_name', '').strip()
                             _last = d.get('last_name', '').strip()
                             if _first and _last:
-                                _slug = f"{_first}_{_last}".lower().replace(" ", "_")
-                                _email = f"no_email_{_slug}"
-                                _notes_parts = []
-                                if d.get('number'): _notes_parts.append(f"#{d['number']}") 
-                                if d.get('nationality'): _notes_parts.append(d['nationality'])
-                                if d.get('team'): _notes_parts.append(d['team'])
-                                _notes = " · ".join(_notes_parts)
-
-                                if dashboard.add_new_driver(
-                                    _email, _first, _last, "", "",
-                                    championship=_champ_name, notes=_notes
-                                ):
-                                    dashboard.update_driver_stage(_email, FunnelStage.CONTACT)
-                                    _imported += 1
-                            _prog.progress((_idx + 1) / len(_drivers))
-                        st.success(f"✅ Imported **{_imported}** drivers into the pipeline!")
-                        st.toast(f"⚡ {_imported} drivers imported")
+                                _driver_names.append(f"{_first} {_last}")
+                        if _driver_names:
+                            st.session_state['_research_driver_names'] = _driver_names
+                            st.session_state['_run_analysis_on_update'] = True
+                            st.success(f"✅ {len(_driver_names)} drivers queued for outreach!")
+                            st.toast(f"⚡ {len(_driver_names)} drivers → outreach list")
+                            st.rerun()
 
                 # ── Timing Source ──
                 _ts_data = _rdata.get('timing_source', {})
@@ -1672,6 +1654,11 @@ def render_race_outreach(dashboard):
     raw_results_list = []
     _speedhive_driver_results = {}  # name -> list of session results (populated by Speedhive import)
     _speedhive_event = None
+
+    # If research queued driver names → inject them into the outreach list
+    if '_research_driver_names' in st.session_state:
+        raw_results_list = st.session_state.pop('_research_driver_names')
+        input_method = "Paste Text"  # Skip timing API UI — we already have names
 
     if input_method == "🌐 Import from Speedhive":
         try:
