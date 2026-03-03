@@ -1625,7 +1625,6 @@
       if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
       const msg = fixNameInMessage(currentAiTemplate);
       const pasted = await pasteIntoInput(msg);
-      // Always save to pipeline — whether pasted or copied
       saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
       if (pasted) {
         showToast('🤖 AI message pasted!');
@@ -1638,6 +1637,63 @@
         }
       }
     });
+
+    // --- AI END OF SEASON BUTTON (always visible, independent) ---
+    const aiEosContainer = document.createElement('div');
+    aiEosContainer.id = 'ag-ai-eos-container';
+
+    const aiEosBtn = document.createElement('button');
+    aiEosBtn.className = 'ag-template-btn ag-outreach';
+    aiEosBtn.style.cssText = 'background:#7c3aed;color:white;border:none;margin-bottom:12px;';
+    let currentEosTemplate = '';
+
+    // Generate end-of-season message
+    async function loadEosMessage() {
+      const firstName = getFirstName(currentName);
+      let championship = '';
+      try {
+        const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
+        championship = cleanChampionshipName(data.ag_championship || '');
+      } catch (e) { /* ignore */ }
+
+      if (championship) {
+        const templates = [
+          `Hey ${firstName}, I see you were competing in the ${championship} this season. How did it go for you?`,
+          `Hey ${firstName}, saw you were racing in the ${championship} this season. How was it?`,
+          `Hey ${firstName}, I noticed you competed in the ${championship} this season. How did you get on?`,
+        ];
+        currentEosTemplate = templates[Math.floor(Math.random() * templates.length)];
+      } else {
+        currentEosTemplate = `Hey ${firstName}, how was your season? Did you get the results you were after?`;
+      }
+
+      const preview = currentEosTemplate.replace(/\n/g, ' ').substring(0, 80);
+      aiEosBtn.innerHTML = `
+        <span class="ag-tmpl-name">🏆 AI End of Season</span>
+        <span class="ag-tmpl-preview">${preview}${currentEosTemplate.length > 80 ? '...' : ''}</span>
+      `;
+    }
+    loadEosMessage();
+
+    aiEosBtn.addEventListener('click', async () => {
+      if (!currentEosTemplate) { showToast('No championship set — open app first'); return; }
+      const msg = currentEosTemplate;
+      const pasted = await pasteIntoInput(msg);
+      saveOutreachToApp(currentName, msg, 'End of Season', true);
+      if (pasted) {
+        showToast('🏆 End of Season message pasted!');
+      } else {
+        try {
+          await navigator.clipboard.writeText(msg);
+          showToast('📋 End of Season message copied!');
+        } catch (e) {
+          showToast('Could not paste — copy manually');
+        }
+      }
+    });
+
+    aiEosContainer.appendChild(aiEosBtn);
+    body.appendChild(aiEosContainer);
 
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
       const groupTitle = document.createElement('div');
