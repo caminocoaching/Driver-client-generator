@@ -1110,6 +1110,17 @@ def render_race_outreach(dashboard):
         and st.secrets["research"].get("gemini_api_key")
     )
 
+    # Map championships to their timing source (moved here so Import All can use it)
+    _CHAMP_TIMING_SOURCE = {
+        "BTCC": "tsl",  "British F4": "tsl", "GB3": "tsl",
+        "British GT": "tsl", "Porsche Cup GB": "tsl",
+        "Porsche Cup NA": "imsa",
+        "Porsche Cup AU": "computime",
+        "Porsche Sprint NA": "paste",
+        "IndyNXT": "paste",
+        "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
+    }
+
     with st.expander("🔬 **Research New Championship**", expanded=False):
         if not _has_research_keys:
             st.info(
@@ -1280,6 +1291,39 @@ def render_race_outreach(dashboard):
                             _persist_circuit(_circuit_name)
                             st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_first_rd)})"
                             _msgs.append(f"🏁 Circuit: **{_circuit_name}** (next event)")
+
+                        # 5. Auto-configure timing source if detected
+                        _ts = _rdata.get('timing_source', {})
+                        _ts_type = (_ts.get('type') or 'none').lower().strip()
+                        if _ts_type and _ts_type != 'none':
+                            _CHAMP_TIMING_SOURCE[_champ_name] = _ts_type
+                            _ts_url = _ts.get('url', '')
+                            _ts_labels = {
+                                'speedhive': '🌐 Speedhive',
+                                'tsl': '🇬🇧 TSL Timing',
+                                'computime': '🕐 Computime',
+                                'imsa': '🇺🇸 IMSA',
+                                'natsoft': '🇦🇺 Natsoft',
+                            }
+                            _msgs.append(f"⏱️ Timing: **{_ts_labels.get(_ts_type, _ts_type)}**")
+                            # If Speedhive, try to link the org for easy browsing
+                            if _ts_type == 'speedhive' and _ts_url:
+                                try:
+                                    from speedhive_client import SpeedhiveClient
+                                    _sh = SpeedhiveClient()
+                                    _eid = _sh.extract_event_id(_ts_url)
+                                    if _eid:
+                                        _org = _sh.discover_org_from_event(int(_eid))
+                                        if _org and _org.get('org_id'):
+                                            _linked = st.session_state.get('sh_linked_orgs', {})
+                                            _linked[_champ_name] = _org
+                                            st.session_state.sh_linked_orgs = _linked
+                                            if settings and settings.is_available:
+                                                settings.set('speedhive_orgs', _linked)
+                                            _msgs.append(f"🔗 Speedhive org linked")
+                                except Exception as _sh_err:
+                                    pass  # Non-critical — timing can still work via URL paste
+
                         st.success("✅ **All imported!** " + " · ".join(_msgs))
                         st.toast(f"🚀 {_champ_name} — ready for outreach!")
                         st.rerun()
@@ -1360,6 +1404,38 @@ def render_race_outreach(dashboard):
                         st.success(f"✅ Imported **{_imported}** drivers into the pipeline!")
                         st.toast(f"⚡ {_imported} drivers imported")
 
+                # ── Timing Source ──
+                _ts_data = _rdata.get('timing_source', {})
+                _ts_type_display = (_ts_data.get('type') or 'none').lower()
+                if _ts_type_display and _ts_type_display != 'none':
+                    _ts_label_map = {
+                        'speedhive': '🌐 Speedhive (MYLAPS)',
+                        'tsl': '🇬🇧 TSL Timing',
+                        'computime': '🕐 Computime',
+                        'imsa': '🇺🇸 IMSA / Al Kamel',
+                        'natsoft': '🇦🇺 Natsoft',
+                    }
+                    _ts_url_display = _ts_data.get('url', '')
+                    st.markdown(f"#### ⏱️ Timing Source: {_ts_label_map.get(_ts_type_display, _ts_type_display)}")
+                    if _ts_url_display:
+                        st.caption(f"[🔗 {_ts_url_display}]({_ts_url_display})")
+                    st.info(f"✅ Timing API will be auto-configured when you click **Import All**")
+
+                # ── Social Media ──
+                _social_parts = []
+                if _rdata.get('facebook'):
+                    _social_parts.append(f"[📘 Facebook]({_rdata['facebook']})")
+                if _rdata.get('instagram'):
+                    _ig = _rdata['instagram']
+                    if not _ig.startswith('http'):
+                        _ig = f"https://instagram.com/{_ig.lstrip('@')}"
+                    _social_parts.append(f"[📷 Instagram]({_ig})")
+                if _rdata.get('website'):
+                    _social_parts.append(f"[🌐 Website]({_rdata['website']})")
+                if _social_parts:
+                    st.markdown("#### 📱 Links")
+                    st.markdown(" · ".join(_social_parts))
+
                 # ── Results Summary ──
                 _results_summary = _rdata.get('results_summary', '')
                 if _results_summary:
@@ -1374,16 +1450,6 @@ def render_race_outreach(dashboard):
     # =====================================================================
     # STEP 1: SELECT CHAMPIONSHIP
     # =====================================================================
-    # Map championships to their timing source
-    _CHAMP_TIMING_SOURCE = {
-        "BTCC": "tsl",  "British F4": "tsl", "GB3": "tsl",
-        "British GT": "tsl", "Porsche Cup GB": "tsl",
-        "Porsche Cup NA": "imsa",
-        "Porsche Cup AU": "computime",
-        "Porsche Sprint NA": "paste",  # PDFs on porschesprint.com — no API
-        "IndyNXT": "paste",  # indycar.com/results
-        "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
-    }
 
     # Sort: recently finished first, then alphabetical
     _champ_sort_key = {}

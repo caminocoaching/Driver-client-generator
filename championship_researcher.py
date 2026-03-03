@@ -103,7 +103,7 @@ _EXTRACTION_PROMPT = """You are a motorsport data extraction expert. I will give
 
 Extract the following structured data and return it as a single JSON object. If a field is not found, use an empty list or empty string.
 
-{
+{{
   "championship_name": "Full official name of the championship",
   "season": "e.g. 2025-2026",
   "country": "Primary country (e.g. NZ, UK, USA)",
@@ -112,33 +112,46 @@ Extract the following structured data and return it as a single JSON object. If 
   "instagram": "Instagram handle/URL if found",
   
   "calendar": [
-    {
+    {{
       "round": "R1",
       "name": "Event/venue name",
       "start_date": "YYYY-MM-DD",
       "end_date": "YYYY-MM-DD",
       "venue": "Circuit/track name"
-    }
+    }}
   ],
   
   "drivers": [
-    {
+    {{
       "number": "Car/race number (string)",
       "first_name": "First name",
       "last_name": "Last name",
       "nationality": "Country code or name",
       "team": "Team name if available"
-    }
+    }}
   ],
   
+  "timing_source": {{
+    "type": "speedhive|tsl|computime|imsa|natsoft|none",
+    "url": "URL to timing results page if found (e.g. speedhive.mylaps.com/events/..., tsl-timing.com/event/..., computime.racetecresults.com/...)",
+    "event_id": "Event or meeting ID if extractable from the URL"
+  }},
+  
   "results_summary": "Brief text summary of any results found (e.g. championship standings, recent race winners)"
-}
+}}
 
 IMPORTANT RULES:
 - Dates MUST be in YYYY-MM-DD format. If only month/day is given, assume the most recent season year.
 - For driver numbers, extract from text like "#1", "No. 1", "Car 1", etc.
 - Nationality codes: use standard 3-letter codes (NZL, USA, GBR, AUS, etc.) or country names as found.
 - If you see race results (positions, lap times), include them in results_summary.
+- For timing_source, look for links or references to these timing providers:
+  - Speedhive/MYLAPS: speedhive.mylaps.com URLs
+  - TSL Timing: tsl-timing.com URLs (used by BSB, BTCC, British GT, British F4, GB3)
+  - Computime: computime.racetecresults.com URLs (used by Australian/Porsche Cup AU)
+  - IMSA / Al Kamel: results.imsa.com URLs (used by Porsche Cup NA, IMSA)
+  - Natsoft: natsoft.com.au URLs (used by some Australian championships)
+  - If none found, set type to "none"
 - Return ONLY valid JSON, no markdown code fences, no commentary.
 
 Here is the championship name the user is researching:
