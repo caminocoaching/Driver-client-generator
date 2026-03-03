@@ -79,6 +79,16 @@
     }
   });
 
+  // Clean championship name for messages — remove governing body suffixes
+  function cleanChampionshipName(name) {
+    if (!name) return '';
+    return name
+      .replace(/\s*[-–—]?\s*certified by FIA\b/gi, '')
+      .replace(/\s*[-–—]?\s*sanctioned by FIA\b/gi, '')
+      .replace(/\s*[-–—]\s*$/, '')
+      .trim();
+  }
+
   // ── Reply Templates (synced from ui_components.py) ──────────────────────
   const REPLY_TEMPLATES = {
     // --- COLD OUTREACH (randomly picks variation when clicked) ---
@@ -487,7 +497,7 @@
 
     // Get championship from chrome.storage (synced from Streamlit)
     chrome.storage.local.get('ag_championship', (data) => {
-      const championship = data.ag_championship || '';
+      const championship = cleanChampionshipName(data.ag_championship || '');
       console.log('[AG] Sending saveOutreach to background:', { driver: bestName, socialUrl: profileUrl, championship });
       sendRuntimeMessage({
         type: 'saveOutreach',
@@ -1516,7 +1526,7 @@
       try {
         const data = await new Promise(r => chrome.storage.local.get(['ag_outreach_mode', 'ag_championship'], r));
         mode = data.ag_outreach_mode || 'race_weekend';
-        championship = data.ag_championship || '';
+        championship = cleanChampionshipName(data.ag_championship || '');
       } catch (e) { /* ignore */ }
 
       if (mode === 'end_of_season' && championship) {
@@ -1546,7 +1556,7 @@
           const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
           const msgs = (data && data.ag_ai_messages) || {};
           const outreachMode = data.ag_outreach_mode || 'race_weekend';
-          const championship = data.ag_championship || '';
+          const championship = cleanChampionshipName(data.ag_championship || '');
           const isEos = (outreachMode === 'end_of_season');
 
           // Try exact match, then partial match
@@ -1661,7 +1671,7 @@
           let championship = '';
           try {
             const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
-            championship = data.ag_championship || '';
+            championship = cleanChampionshipName(data.ag_championship || '');
           } catch (e) { /* ignore */ }
           if (template.includes('{championship}') && !championship) {
             showToast('⚠️ Select a championship in the pipeline app first');
@@ -1772,7 +1782,7 @@
           let championship = '';
           try {
             const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
-            championship = data.ag_championship || '';
+            championship = cleanChampionshipName(data.ag_championship || '');
           } catch (e) { /* ignore */ }
           if (template.includes('{championship}') && !championship) {
             showToast('⚠️ Select a championship in the pipeline app first');
