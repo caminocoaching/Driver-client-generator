@@ -153,7 +153,7 @@
     "🏁 COLD OUTREACH": ["Cold Outreach", "Offer Free Training"],
     "🏆 END OF SEASON": ["End of Season", "End of Season (Reply)", "Send Season Review"],
     "REPLIES": ["Great Work (Reply)", "Productive (Reply)", "Tough Weekend (Reply)"],
-    "SEND LINKS": ["Send Link (Yes)", "Send Season Review", "Send Blueprint Link"],
+    "SEND LINKS": ["Send Link (Yes)", "Send Blueprint Link"],
     "FOLLOW-UPS": ["Follow-Up (Review Done → Blueprint)", "Follow-Up (Link Sent Check)", "Follow-Up (Review 2 Days) V1", "Follow-Up (Review 2 Days) V2"],
     "STALLED NUDGES": ["Stalled: Review Started", "Stalled: Signed In", "Stalled: Day 1 Only", "Stalled: Day 2 Only", "Stalled: Day 3 Only"],
     "RESCUE DMs": ["Rescue: Day 1 Nudge", "Rescue: Day 2 Nudge", "Rescue: Book Strategy Call"]
@@ -1648,125 +1648,6 @@
 
 
 
-    // --- AI END OF SEASON OUTREACH (primary outreach button) ---
-    const aiMsgContainer = document.createElement('div');
-    aiMsgContainer.id = 'ag-ai-outreach-container';
-
-    const aiBtn = document.createElement('button');
-    aiBtn.className = 'ag-template-btn ag-outreach';
-    aiBtn.style.cssText = 'background:#7c3aed;color:white;border:none;margin-bottom:12px;';
-    aiBtn.innerHTML = `
-      <span class="ag-tmpl-name">🏆 AI End of Season</span>
-      <span class="ag-tmpl-preview">Loading...</span>
-    `;
-    aiMsgContainer.appendChild(aiBtn);
-    body.appendChild(aiMsgContainer);
-
-    // Load end-of-season AI message
-    let currentAiTemplate = '';
-
-    function updateAiButton(template) {
-      currentAiTemplate = template;
-      const preview = fixNameInMessage(template).replace(/\n/g, ' ').substring(0, 80);
-      const previewEl = aiBtn.querySelector('.ag-tmpl-preview');
-      if (previewEl) previewEl.textContent = preview + (template.length > 80 ? '...' : '');
-    }
-
-    async function loadAiMessage() {
-      const firstName = getFirstName(pipelineDriverName || currentName);
-      let championship = '';
-      try {
-        const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
-        championship = cleanChampionshipName(data.ag_championship || '');
-      } catch (e) { /* ignore */ }
-
-      if (championship) {
-        const templates = [
-          `Hey ${firstName}, I see you were competing in the ${championship} this season. How did it go for you?`,
-          `Hey ${firstName}, saw you were racing in the ${championship} this season. How was it?`,
-          `Hey ${firstName}, I noticed you competed in the ${championship} this season. How did you get on?`,
-        ];
-        updateAiButton(templates[Math.floor(Math.random() * templates.length)]);
-      } else {
-        updateAiButton(`Hey ${firstName}, how was your season? Did you get the results you were after?`);
-      }
-    }
-    loadAiMessage();
-
-    // Re-check when storage changes (e.g. user selects different championship)
-    try {
-      chrome.storage.onChanged.addListener((changes) => {
-        if (changes.ag_championship || changes.ag_current_driver) {
-          loadAiMessage();
-        }
-      });
-    } catch (e) { /* ignore */ }
-
-    aiBtn.addEventListener('click', async () => {
-      if (!currentAiTemplate) { showToast('No championship set — open app first'); return; }
-      const msg = fixNameInMessage(currentAiTemplate);
-      const pasted = await pasteIntoMessenger(msg);
-      saveOutreachToApp(currentName, msg, 'End of Season', true);
-      if (pasted) {
-        showToast('🏆 End of Season message pasted!');
-      } else {
-        try {
-          await navigator.clipboard.writeText(msg);
-          showToast('📋 End of Season message copied!');
-        } catch (e) {
-          showToast('Could not paste — copy manually');
-        }
-      }
-      setTimeout(() => clickAddFriendButton(), 1000);
-    });
-
-    // --- AI RACE WEEKEND OUTREACH BUTTON ---
-    const aiRaceContainer = document.createElement('div');
-    aiRaceContainer.id = 'ag-ai-race-container';
-
-    const aiRaceBtn = document.createElement('button');
-    aiRaceBtn.className = 'ag-template-btn ag-outreach';
-    aiRaceBtn.style.cssText = 'background:#059669;color:white;border:none;margin-bottom:12px;';
-    let currentRaceTemplate = '';
-
-    function loadRaceMessage() {
-      const firstName = getFirstName(pipelineDriverName || currentName);
-      const circuitInput = document.getElementById('ag-circuit-input');
-      const circuit = circuitInput ? circuitInput.value.trim() : '';
-      const templates = [
-        `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
-        `Hey ${firstName}, looks like you had a solid weekend${circuit ? ' at ' + circuit : ''}. How's the car feeling?`,
-        `Hey ${firstName}, hope the weekend went well${circuit ? ' at ' + circuit : ''}. How's the season shaping up for you?`,
-      ];
-      currentRaceTemplate = templates[Math.floor(Math.random() * templates.length)];
-      const preview = currentRaceTemplate.replace(/\n/g, ' ').substring(0, 80);
-      aiRaceBtn.innerHTML = `
-        <span class="ag-tmpl-name">🤖 AI Race Weekend</span>
-        <span class="ag-tmpl-preview">${preview}${currentRaceTemplate.length > 80 ? '...' : ''}</span>
-      `;
-    }
-    loadRaceMessage();
-
-    aiRaceBtn.addEventListener('click', async () => {
-      if (!currentRaceTemplate) return;
-      const msg = currentRaceTemplate;
-      const pasted = await pasteIntoMessenger(msg);
-      saveOutreachToApp(currentName, msg, 'Cold Outreach', true);
-      if (pasted) {
-        showToast('🤖 Race Weekend message pasted!');
-      } else {
-        try {
-          await navigator.clipboard.writeText(msg);
-          showToast('📋 Race Weekend message copied!');
-        } catch (e) {
-          showToast('Could not paste — copy manually');
-        }
-      }
-      setTimeout(() => clickAddFriendButton(), 1000);
-    });
-
-    aiRaceContainer.appendChild(aiRaceBtn);
-    body.appendChild(aiRaceContainer);
 
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
       const groupTitle = document.createElement('div');
@@ -1783,7 +1664,15 @@
           ? 'ag-template-btn ag-outreach'
           : 'ag-template-btn';
 
-        const preview = template.replace('{name}', getFirstName(currentName)).replace('{circuit}', '___').substring(0, 80);
+        // Generate proper preview for random templates instead of showing placeholder
+        const firstName = getFirstName(pipelineDriverName || currentName);
+        let previewText = template;
+        if (template.includes('__RANDOM_OUTREACH__')) {
+          previewText = getRandomOutreach();
+        } else if (template.includes('__RANDOM_END_OF_SEASON__')) {
+          previewText = getRandomEndOfSeason();
+        }
+        const preview = previewText.replace(/\{name\}/g, firstName).replace(/\{circuit\}/g, '___').replace(/\{championship\}/g, '(championship)').substring(0, 80);
 
         btn.innerHTML = `
           <span class="ag-tmpl-name">${key}</span>
