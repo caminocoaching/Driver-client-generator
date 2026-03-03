@@ -1557,6 +1557,53 @@
       }
     });
 
+    // --- AI RACE WEEKEND OUTREACH BUTTON ---
+    const aiRaceContainer = document.createElement('div');
+    aiRaceContainer.id = 'ag-ai-race-container';
+
+    const aiRaceBtn = document.createElement('button');
+    aiRaceBtn.className = 'ag-template-btn ag-outreach';
+    aiRaceBtn.style.cssText = 'background:#059669;color:white;border:none;margin-bottom:12px;';
+    let currentRaceTemplate = '';
+
+    function loadRaceMessage() {
+      const firstName = getFirstName(currentName);
+      const circuitInput = document.getElementById('ag-circuit-input');
+      const circuit = circuitInput ? circuitInput.value.trim() : '';
+      const templates = [
+        `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
+        `Hey ${firstName}, looks like you had a solid weekend${circuit ? ' at ' + circuit : ''}. How's the car feeling?`,
+        `Hey ${firstName}, hope the weekend went well${circuit ? ' at ' + circuit : ''}. How's the season shaping up for you?`,
+      ];
+      currentRaceTemplate = templates[Math.floor(Math.random() * templates.length)];
+      const preview = currentRaceTemplate.replace(/\n/g, ' ').substring(0, 80);
+      aiRaceBtn.innerHTML = `
+        <span class="ag-tmpl-name">🤖 AI Race Weekend</span>
+        <span class="ag-tmpl-preview">${preview}${currentRaceTemplate.length > 80 ? '...' : ''}</span>
+      `;
+    }
+    loadRaceMessage();
+
+    aiRaceBtn.addEventListener('click', async () => {
+      if (!currentRaceTemplate) return;
+      const msg = currentRaceTemplate;
+      const pasted = await pasteIntoInput(msg);
+      saveOutreachToApp(currentName, msg, 'Cold Outreach', true);
+      if (pasted) {
+        showToast('🤖 Race Weekend message pasted!');
+      } else {
+        try {
+          await navigator.clipboard.writeText(msg);
+          showToast('📋 Race Weekend message copied!');
+        } catch (e) {
+          showToast('Could not paste — copy manually');
+        }
+      }
+    });
+
+    aiRaceContainer.appendChild(aiRaceBtn);
+    body.appendChild(aiRaceContainer);
+
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
       const groupTitle = document.createElement('div');
       groupTitle.className = 'ag-group-title';
