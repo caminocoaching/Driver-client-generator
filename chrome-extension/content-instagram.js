@@ -1496,11 +1496,30 @@
       aiMsgContainer.style.display = 'block';
     }
 
-    // Generate a fallback cold outreach when no AI message is synced from app
-    function getFallbackAiMessage() {
+    // Generate a fallback outreach when no AI message is synced from app
+    // Respects outreach mode (race_weekend vs end_of_season)
+    async function getFallbackAiMessage() {
       const firstName = getFirstName(currentName);
       const circuitInput = document.getElementById('ag-circuit-input');
       const circuit = circuitInput ? circuitInput.value.trim() : '';
+
+      // Check outreach mode from chrome.storage
+      let mode = 'race_weekend';
+      let championship = '';
+      try {
+        const data = await new Promise(r => chrome.storage.local.get(['ag_outreach_mode', 'ag_championship'], r));
+        mode = data.ag_outreach_mode || 'race_weekend';
+        championship = data.ag_championship || '';
+      } catch (e) { /* ignore */ }
+
+      if (mode === 'end_of_season' && championship) {
+        const templates = [
+          `Hey ${firstName}, I see you were competing in the ${championship} this season. How did it go for you?`,
+          `Hey ${firstName}, saw you were racing in the ${championship} this season. How was it?`,
+          `Hey ${firstName}, I noticed you competed in the ${championship} this season. How did you get on?`,
+        ];
+        return templates[Math.floor(Math.random() * templates.length)];
+      }
 
       const templates = [
         `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
@@ -1512,9 +1531,9 @@
 
     // Look up driver-specific AI message from the per-driver dictionary,
     // falling back to the single default message if no match found.
-    function loadAiMessage() {
+    async function loadAiMessage() {
       try {
-        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver'], (data) => {
+        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver'], async (data) => {
           const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
           const msgs = (data && data.ag_ai_messages) || {};
 
@@ -1540,16 +1559,19 @@
           if (template) {
             updateAiButton(template.replace(/\\n/g, '\n'));
           } else {
-            // No AI message from app — show fallback cold outreach
-            const fallback = getFallbackAiMessage();
+            // No AI message from app — show fallback outreach
+            const fallback = await getFallbackAiMessage();
             updateAiButton(fallback);
             const nameEl = aiBtn.querySelector('.ag-tmpl-name');
-            if (nameEl) nameEl.textContent = '🤖 AI Race Outreach';
+            // Check mode for label
+            const modeData = await new Promise(r => chrome.storage.local.get('ag_outreach_mode', r));
+            const isEos = (modeData.ag_outreach_mode === 'end_of_season');
+            if (nameEl) nameEl.textContent = isEos ? '🏆 AI End of Season' : '🤖 AI Race Outreach';
           }
         });
       } catch (e) {
         console.warn('[AG] Could not load AI message from storage:', e.message);
-        updateAiButton(getFallbackAiMessage());
+        getFallbackAiMessage().then(fb => updateAiButton(fb));
       }
     }
     loadAiMessage();
