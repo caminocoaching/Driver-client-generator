@@ -2714,15 +2714,32 @@ def render_race_outreach(dashboard):
         actionable_count = sum(1 for r in filtered if not (r.get('match') and r['match'].current_stage in _CONTACTED_STAGES))
         done_count = len(filtered) - actionable_count
 
-        _fc1, _fc2 = st.columns([3, 1])
+        _fc1, _fc2, _fc3 = st.columns([3, 1, 1])
         with _fc1:
-            st.markdown(
-                f'<div style="background:#064e3b;border:1px solid #10b981;border-radius:8px;padding:10px 16px;'
-                f'margin:4px 0 8px 0;font-size:16px;color:#34d399;font-weight:700;">'
-                f'📋 {actionable_count} to message &nbsp;·&nbsp; ✅ {done_count} already contacted'
-                f'</div>', unsafe_allow_html=True
-            )
+            if _is_end_of_season:
+                st.markdown(
+                    f'<div style="background:#2d1b4e;border:1px solid #f59e0b;border-radius:8px;padding:10px 16px;'
+                    f'margin:4px 0 8px 0;font-size:16px;color:#fbbf24;font-weight:700;">'
+                    f'🏆 End of Season &nbsp;·&nbsp; 📋 {actionable_count} to message &nbsp;·&nbsp; ✅ {done_count} contacted'
+                    f'</div>', unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div style="background:#064e3b;border:1px solid #10b981;border-radius:8px;padding:10px 16px;'
+                    f'margin:4px 0 8px 0;font-size:16px;color:#34d399;font-weight:700;">'
+                    f'📋 {actionable_count} to message &nbsp;·&nbsp; ✅ {done_count} already contacted'
+                    f'</div>', unsafe_allow_html=True
+                )
         with _fc2:
+            if _is_end_of_season:
+                if st.button("🏁 Switch to Race Weekend", key="_switch_race_weekend", use_container_width=True):
+                    st.session_state['_outreach_mode'] = "🏁 Race Weekend"
+                    st.rerun()
+            else:
+                if st.button("🏆 End of Season", key="_switch_eos", type="primary", use_container_width=True):
+                    st.session_state['_outreach_mode'] = "🏆 End of Season"
+                    st.rerun()
+        with _fc3:
             hide_contacted = st.toggle("Hide Contacted", value=st.session_state.get('_hide_contacted', True), key="_hide_contacted")
 
         if hide_contacted:
