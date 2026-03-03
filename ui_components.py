@@ -1636,9 +1636,11 @@ def render_unified_card_content(driver, dashboard, key_suffix="", default_event_
             badges += f" · {driver.championship}"
         st.markdown(badges)
 
-        # Email display (hide internal slugs) — links to GoHighLevel CRM
-        _ghl_url = "https://app.usegoplus.com/v2/location/C03hMrgoj4FLALDMqpWr/contacts/smart_list/All"
+        # Email display (hide internal slugs) — links to GoHighLevel CRM with name search
+        _ghl_base = "https://app.usegoplus.com/v2/location/C03hMrgoj4FLALDMqpWr/contacts/smart_list/All"
         if driver.email and not driver.email.startswith("no_email_"):
+            _search_name = f"{driver.first_name} {driver.last_name}".strip()
+            _ghl_url = f"{_ghl_base}?search={urllib.parse.quote(_search_name)}" if _search_name else _ghl_base
             st.link_button(f"✉️ {driver.email}", _ghl_url, use_container_width=False)
         if driver.phone:
             st.caption(f"📱 {driver.phone}")
