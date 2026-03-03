@@ -1002,12 +1002,17 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                  else:
                      btn_icon = "🟢"
 
+                 # Check for missing social URLs
+                 _has_socials = bool(getattr(r, 'facebook_url', None) or getattr(r, 'instagram_url', None))
+                 _no_socials_html = '' if _has_socials or is_client else '<div style="font-size:10px;color:#ef4444;font-weight:600;">⚠️ No socials</div>'
+
                  # Render card HTML + button
                  st.markdown(
                      f'<div class="pipeline-card {card_class}">'
                      f'<div style="font-weight:600;">{btn_icon} {display_name}</div>'
                      f'<div class="{action_class}">{action_text}</div>'
                      f'<div style="font-size:11px;color:#6b7280;">📅 {date_str}</div>'
+                     f'{_no_socials_html}'
                      f'</div>',
                      unsafe_allow_html=True
                  )
