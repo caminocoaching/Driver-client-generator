@@ -1511,7 +1511,7 @@
     }
 
     async function loadAiMessage() {
-      const firstName = getFirstName(currentName);
+      const firstName = getFirstName(pipelineDriverName || currentName);
       let championship = '';
       try {
         const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
@@ -1567,7 +1567,7 @@
     let currentRaceTemplate = '';
 
     function loadRaceMessage() {
-      const firstName = getFirstName(currentName);
+      const firstName = getFirstName(pipelineDriverName || currentName);
       const circuitInput = document.getElementById('ag-circuit-input');
       const circuit = circuitInput ? circuitInput.value.trim() : '';
       const templates = [
