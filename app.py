@@ -1012,7 +1012,7 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                      unsafe_allow_html=True
                  )
 
-                 if st.button(f"Open {display_name}", key=f"btn_card_{r.email}_{idx}_{ri}", use_container_width=True, label_visibility="collapsed"):
+                 if st.button("⤴", key=f"btn_card_{r.email}_{idx}_{ri}", use_container_width=True):
                      st.session_state['_open_driver_card'] = r.email
                      st.rerun()
 
