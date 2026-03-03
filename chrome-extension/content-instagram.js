@@ -200,12 +200,12 @@
 
   // End of season outreach variations — uses {championship} placeholder
   const END_OF_SEASON_VARIATIONS = [
-    `Hey {name}, I see you were competing in the {championship} this season. How did it go for you?`,
-    `Hi {name}, saw you were racing in the {championship} this season. How was it?`,
-    `Hey {name}, I noticed you competed in the {championship} this season. How did you get on?`,
-    `Hi {name}, looks like you had a season in the {championship}. How did it go?`,
-    `Hey {name}, I see you were part of the {championship} this season. How was it for you?`,
-    `Hiya {name}, I noticed you raced in the {championship} this season. How did you find it?`,
+    `Hey {name}\n\nI see you were competing in the {championship} this season\n\nHow did it go for you?`,
+    `Hi {name}\n\nSaw you were racing in the {championship} this season\n\nHow was it?`,
+    `Hey {name}\n\nI noticed you competed in the {championship} this season\n\nHow did you get on?`,
+    `Hi {name}\n\nLooks like you had a season in the {championship}\n\nHow did it go?`,
+    `Hey {name}\n\nI see you were part of the {championship} this season\n\nHow was it for you?`,
+    `Hiya {name}\n\nI noticed you raced in the {championship} this season\n\nHow did you find it?`,
   ];
 
   function getRandomOutreach() {
@@ -1633,14 +1633,16 @@
             const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
             championship = cleanChampionshipName(data.ag_championship || '');
           } catch (e) { /* ignore */ }
-          if (template.includes('{championship}') && !championship) {
-            showToast('⚠️ Select a championship in the pipeline app first');
-            return;
-          }
+          // Expand random templates FIRST
           let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach()
             : template.includes('__RANDOM_END_OF_SEASON__') ? getRandomEndOfSeason()
               : template;
-          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName))
+          // NOW check for championship (after expansion so {championship} is in tmpl)
+          if (tmpl.includes('{championship}') && !championship) {
+            showToast('⚠️ Set championship in the pipeline app first');
+            return;
+          }
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(pipelineDriverName || currentName))
             .replace(/\{circuit\}/g, circuit)
             .replace(/\{championship\}/g, championship);
           const pasted = await pasteIntoInput(msg);
