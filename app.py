@@ -676,35 +676,23 @@ def render_dashboard(dashboard, daily_metrics, drivers):
         """Check if a date falls within the visible pipeline window.
         
         Rules:
-        - Always show current month activity
-        - First 7 days of a new month: also show previous month's active drivers
-          (grace period so they don't vanish overnight on the 1st)
-        - Any driver with stage date older than 14 days is hidden regardless
+        - Show all activity from the last 14 days (rolling window)
+        - No calendar month boundaries — drivers never vanish overnight
         """
         if not d:
             return False
-        # Current month — always visible
-        if d.month == now.month and d.year == now.year:
-            return True
-        # Grace window: first 7 days of month → show previous month too
-        if now.day <= 7:
-            prev_month = now.month - 1 if now.month > 1 else 12
-            prev_year = now.year if now.month > 1 else now.year - 1
-            if d.month == prev_month and d.year == prev_year:
-                # But still enforce 14-day hard cutoff
-                age_days = (now - d).days if isinstance(d, datetime) else 999
-                return age_days <= 14
-        return False
+        age_days = (now - d).days if isinstance(d, datetime) else 999
+        return age_days <= 14
 
     # ═══════════════════════════════════════════════════════════════════
     # PIPELINE VISIBILITY — Airtable is the SINGLE source of truth.
     # Every stage uses its stage-specific date. ZERO fallbacks.
-    # Current month filter for ALL stages. No exceptions.
+    # Rolling 14-day window for ALL stages.
     # Google Sheets feed Airtable. Airtable feeds the pipeline.
     # ═══════════════════════════════════════════════════════════════════
 
     def is_in_timeframe(r, date_attr):
-        """Show contact only if its STAGE DATE is in the current month.
+        """Show contact only if its STAGE DATE is within the last 14 days.
         No fallbacks. If the stage date is missing, the contact is not visible.
         Airtable is the bible — if the date isn't there, fix the data."""
         d = _normalize_dt(getattr(r, date_attr, None))
