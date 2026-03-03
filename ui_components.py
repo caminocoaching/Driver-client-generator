@@ -1639,7 +1639,7 @@ def render_unified_card_content(driver, dashboard, key_suffix="", default_event_
         # Email display (hide internal slugs) — links to GoHighLevel CRM
         _ghl_url = "https://app.usegoplus.com/v2/location/C03hMrgoj4FLALDMqpWr/contacts/smart_list/All"
         if driver.email and not driver.email.startswith("no_email_"):
-            st.markdown(f'✉️ <a href="{_ghl_url}" target="_blank" style="color:inherit;text-decoration:underline dotted;">{driver.email}</a>', unsafe_allow_html=True)
+            st.link_button(f"✉️ {driver.email}", _ghl_url, use_container_width=False)
         if driver.phone:
             st.caption(f"📱 {driver.phone}")
         
