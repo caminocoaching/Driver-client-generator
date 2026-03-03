@@ -1486,23 +1486,21 @@
 
 
 
-    // --- AI OUTREACH MESSAGE (synced from webapp) ---
+    // --- AI END OF SEASON OUTREACH (primary outreach button) ---
     const aiMsgContainer = document.createElement('div');
     aiMsgContainer.id = 'ag-ai-outreach-container';
-    aiMsgContainer.style.display = 'none'; // Hidden until loaded
 
     const aiBtn = document.createElement('button');
     aiBtn.className = 'ag-template-btn ag-outreach';
-    aiBtn.style.cssText = 'background:#059669;color:white;border:none;margin-bottom:12px;';
+    aiBtn.style.cssText = 'background:#7c3aed;color:white;border:none;margin-bottom:12px;';
     aiBtn.innerHTML = `
-      <span class="ag-tmpl-name">🤖 AI Race Outreach</span>
-      <span class="ag-tmpl-preview">Loading from app...</span>
+      <span class="ag-tmpl-name">🏆 AI End of Season</span>
+      <span class="ag-tmpl-preview">Loading...</span>
     `;
     aiMsgContainer.appendChild(aiBtn);
     body.appendChild(aiMsgContainer);
 
-    // Load AI message from chrome.storage
-    // AI message may use {name} placeholder — replaced at click time with current driver's first name
+    // Load end-of-season AI message
     let currentAiTemplate = '';
 
     function updateAiButton(template) {
@@ -1510,145 +1508,9 @@
       const preview = fixNameInMessage(template).replace(/\n/g, ' ').substring(0, 80);
       const previewEl = aiBtn.querySelector('.ag-tmpl-preview');
       if (previewEl) previewEl.textContent = preview + (template.length > 80 ? '...' : '');
-      aiMsgContainer.style.display = 'block';
     }
 
-    // Generate a fallback outreach when no AI message is synced from app
-    // Respects outreach mode (race_weekend vs end_of_season)
-    async function getFallbackAiMessage() {
-      const firstName = getFirstName(currentName);
-      const circuitInput = document.getElementById('ag-circuit-input');
-      const circuit = circuitInput ? circuitInput.value.trim() : '';
-
-      // Check outreach mode from chrome.storage
-      let mode = 'race_weekend';
-      let championship = '';
-      try {
-        const data = await new Promise(r => chrome.storage.local.get(['ag_outreach_mode', 'ag_championship'], r));
-        mode = data.ag_outreach_mode || 'race_weekend';
-        championship = cleanChampionshipName(data.ag_championship || '');
-      } catch (e) { /* ignore */ }
-
-      if (mode === 'end_of_season' && championship) {
-        const templates = [
-          `Hey ${firstName}, I see you were competing in the ${championship} this season. How did it go for you?`,
-          `Hey ${firstName}, saw you were racing in the ${championship} this season. How was it?`,
-          `Hey ${firstName}, I noticed you competed in the ${championship} this season. How did you get on?`,
-        ];
-        return templates[Math.floor(Math.random() * templates.length)];
-      }
-
-      const templates = [
-        `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
-        `Hey ${firstName}, looks like you had a solid weekend${circuit ? ' at ' + circuit : ''}. How's the car feeling?`,
-        `Hey ${firstName}, hope the weekend went well${circuit ? ' at ' + circuit : ''}. How's the season shaping up for you?`,
-      ];
-      return templates[Math.floor(Math.random() * templates.length)];
-    }
-
-    // Look up driver-specific AI message from the per-driver dictionary,
-    // falling back to the single default message if no match found.
-    // IMPORTANT: Also checks outreach mode — if end_of_season, stale race-weekend
-    // messages in storage are overridden with fresh end-of-season fallbacks.
     async function loadAiMessage() {
-      try {
-        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver', 'ag_outreach_mode', 'ag_championship'], async (data) => {
-          const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
-          const msgs = (data && data.ag_ai_messages) || {};
-          const outreachMode = data.ag_outreach_mode || 'race_weekend';
-          const championship = cleanChampionshipName(data.ag_championship || '');
-          const isEos = (outreachMode === 'end_of_season');
-
-          // Try exact match, then partial match
-          let template = msgs[driverName];
-          if (!template && driverName) {
-            const lower = driverName.toLowerCase();
-            for (const [key, val] of Object.entries(msgs)) {
-              if (key.toLowerCase() === lower ||
-                key.toLowerCase().includes(lower) ||
-                lower.includes(key.toLowerCase())) {
-                template = val;
-                break;
-              }
-            }
-          }
-
-          // Fall back to single message
-          if (!template && data && data.ag_ai_outreach_msg) {
-            template = data.ag_ai_outreach_msg;
-          }
-
-          // MODE CHECK: If end_of_season mode but the cached message is race-weekend style,
-          // override with a fresh end-of-season fallback. This prevents stale messages
-          // after the user switches modes in the app.
-          if (isEos && template && championship) {
-            const lower = template.toLowerCase();
-            const looksLikeRaceWeekend = lower.includes('weekend') || lower.includes('at the') || lower.includes('how\'s the car');
-            if (looksLikeRaceWeekend) {
-              console.log('[AG] Overriding stale race-weekend AI message with end-of-season fallback');
-              template = null; // Force fallback
-            }
-          }
-
-          if (template) {
-            updateAiButton(template.replace(/\\n/g, '\n'));
-            // Update label based on mode
-            const nameEl = aiBtn.querySelector('.ag-tmpl-name');
-            if (nameEl && isEos) nameEl.textContent = '🏆 AI End of Season';
-          } else {
-            // No AI message from app — show fallback outreach
-            const fallback = await getFallbackAiMessage();
-            updateAiButton(fallback);
-            const nameEl = aiBtn.querySelector('.ag-tmpl-name');
-            if (nameEl) nameEl.textContent = isEos ? '🏆 AI End of Season' : '🤖 AI Race Outreach';
-          }
-        });
-      } catch (e) {
-        console.warn('[AG] Could not load AI message from storage:', e.message);
-        getFallbackAiMessage().then(fb => updateAiButton(fb));
-      }
-    }
-    loadAiMessage();
-
-    // Re-check when storage changes
-    try {
-      chrome.storage.onChanged.addListener((changes) => {
-        if (changes.ag_ai_messages || changes.ag_ai_outreach_msg || changes.ag_current_driver) {
-          loadAiMessage();
-        }
-      });
-    } catch (e) {
-      console.warn('[AG] Could not set up storage listener:', e.message);
-    }
-
-    aiBtn.addEventListener('click', async () => {
-      if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
-      const msg = fixNameInMessage(currentAiTemplate);
-      const pasted = await pasteIntoInput(msg);
-      saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
-      if (pasted) {
-        showToast('🤖 AI message pasted!');
-      } else {
-        try {
-          await navigator.clipboard.writeText(msg);
-          showToast('📋 AI message copied!');
-        } catch (e) {
-          showToast('Could not paste — copy manually');
-        }
-      }
-    });
-
-    // --- AI END OF SEASON BUTTON (always visible, independent) ---
-    const aiEosContainer = document.createElement('div');
-    aiEosContainer.id = 'ag-ai-eos-container';
-
-    const aiEosBtn = document.createElement('button');
-    aiEosBtn.className = 'ag-template-btn ag-outreach';
-    aiEosBtn.style.cssText = 'background:#7c3aed;color:white;border:none;margin-bottom:12px;';
-    let currentEosTemplate = '';
-
-    // Generate end-of-season message
-    async function loadEosMessage() {
       const firstName = getFirstName(currentName);
       let championship = '';
       try {
@@ -1662,22 +1524,25 @@
           `Hey ${firstName}, saw you were racing in the ${championship} this season. How was it?`,
           `Hey ${firstName}, I noticed you competed in the ${championship} this season. How did you get on?`,
         ];
-        currentEosTemplate = templates[Math.floor(Math.random() * templates.length)];
+        updateAiButton(templates[Math.floor(Math.random() * templates.length)]);
       } else {
-        currentEosTemplate = `Hey ${firstName}, how was your season? Did you get the results you were after?`;
+        updateAiButton(`Hey ${firstName}, how was your season? Did you get the results you were after?`);
       }
-
-      const preview = currentEosTemplate.replace(/\n/g, ' ').substring(0, 80);
-      aiEosBtn.innerHTML = `
-        <span class="ag-tmpl-name">🏆 AI End of Season</span>
-        <span class="ag-tmpl-preview">${preview}${currentEosTemplate.length > 80 ? '...' : ''}</span>
-      `;
     }
-    loadEosMessage();
+    loadAiMessage();
 
-    aiEosBtn.addEventListener('click', async () => {
-      if (!currentEosTemplate) { showToast('No championship set — open app first'); return; }
-      const msg = currentEosTemplate;
+    // Re-check when storage changes (e.g. user selects different championship)
+    try {
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.ag_championship || changes.ag_current_driver) {
+          loadAiMessage();
+        }
+      });
+    } catch (e) { /* ignore */ }
+
+    aiBtn.addEventListener('click', async () => {
+      if (!currentAiTemplate) { showToast('No championship set — open app first'); return; }
+      const msg = fixNameInMessage(currentAiTemplate);
       const pasted = await pasteIntoInput(msg);
       saveOutreachToApp(currentName, msg, 'End of Season', true);
       if (pasted) {
@@ -1691,9 +1556,6 @@
         }
       }
     });
-
-    aiEosContainer.appendChild(aiEosBtn);
-    body.appendChild(aiEosContainer);
 
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
       const groupTitle = document.createElement('div');
