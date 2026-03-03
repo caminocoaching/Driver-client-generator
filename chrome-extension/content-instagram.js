@@ -150,7 +150,7 @@
     "🏁 COLD OUTREACH": ["Cold Outreach", "Offer Free Training"],
     "🏆 END OF SEASON": ["End of Season", "End of Season (Reply)", "Send Season Review"],
     "REPLIES": ["Great Work (Reply)", "Productive (Reply)", "Tough Weekend (Reply)"],
-    "SEND LINKS": ["Send Season Review", "Send Blueprint Link"],
+    "SEND LINKS": ["Send Link (Yes)", "Send Season Review", "Send Blueprint Link"],
     "FOLLOW-UPS": ["Follow-Up (Review Done → Blueprint)", "Follow-Up (Link Sent Check)", "Follow-Up (Review 2 Days) V1", "Follow-Up (Review 2 Days) V2"],
     "STALLED NUDGES": ["Stalled: Review Started", "Stalled: Signed In", "Stalled: Day 1 Only", "Stalled: Day 2 Only", "Stalled: Day 3 Only"],
     "RESCUE DMs": ["Rescue: Day 1 Nudge", "Rescue: Day 2 Nudge", "Rescue: Book Strategy Call"]
@@ -1485,6 +1485,111 @@
     body.appendChild(captureBtn);
 
 
+
+    // --- AI RACE OUTREACH MESSAGE (synced from webapp) ---
+    const aiMsgContainer = document.createElement('div');
+    aiMsgContainer.id = 'ag-ai-outreach-container';
+    aiMsgContainer.style.display = 'none'; // Hidden until loaded
+
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'ag-template-btn ag-outreach';
+    aiBtn.style.cssText = 'background:#059669;color:white;border:none;margin-bottom:12px;';
+    aiBtn.innerHTML = `
+      <span class="ag-tmpl-name">🤖 AI Race Outreach</span>
+      <span class="ag-tmpl-preview">Loading from app...</span>
+    `;
+    aiMsgContainer.appendChild(aiBtn);
+    body.appendChild(aiMsgContainer);
+
+    // Load AI message from chrome.storage
+    let currentAiTemplate = '';
+
+    function updateAiButton(template) {
+      currentAiTemplate = template;
+      const preview = fixNameInMessage(template).replace(/\n/g, ' ').substring(0, 80);
+      const previewEl = aiBtn.querySelector('.ag-tmpl-preview');
+      if (previewEl) previewEl.textContent = preview + (template.length > 80 ? '...' : '');
+      aiMsgContainer.style.display = 'block';
+    }
+
+    // Generate a fallback race weekend outreach when no AI message is synced from app
+    function getFallbackAiMessage() {
+      const firstName = getFirstName(pipelineDriverName || currentName);
+      const circuitInput = document.getElementById('ag-circuit-input');
+      const circuit = circuitInput ? circuitInput.value.trim() : '';
+      const templates = [
+        `Hey ${firstName}, saw you were out at ${circuit || 'the weekend'}. How's the season going for you?`,
+        `Hey ${firstName}, looks like you had a solid weekend${circuit ? ' at ' + circuit : ''}. How's the car feeling?`,
+        `Hey ${firstName}, hope the weekend went well${circuit ? ' at ' + circuit : ''}. How's the season shaping up for you?`,
+      ];
+      return templates[Math.floor(Math.random() * templates.length)];
+    }
+
+    // Look up driver-specific AI message from the per-driver dictionary,
+    // falling back to the single default message if no match found.
+    function loadAiMessage() {
+      try {
+        chrome.storage.local.get(['ag_ai_messages', 'ag_ai_outreach_msg', 'ag_current_driver'], (data) => {
+          const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
+          const msgs = (data && data.ag_ai_messages) || {};
+
+          // Try exact match, then partial match
+          let template = msgs[driverName];
+          if (!template && driverName) {
+            const lower = driverName.toLowerCase();
+            for (const [key, val] of Object.entries(msgs)) {
+              if (key.toLowerCase() === lower ||
+                key.toLowerCase().includes(lower) ||
+                lower.includes(key.toLowerCase())) {
+                template = val;
+                break;
+              }
+            }
+          }
+
+          // Fall back to single message
+          if (!template && data && data.ag_ai_outreach_msg) {
+            template = data.ag_ai_outreach_msg;
+          }
+
+          if (template) {
+            updateAiButton(template.replace(/\\n/g, '\n'));
+          } else {
+            updateAiButton(getFallbackAiMessage());
+          }
+        });
+      } catch (e) {
+        console.warn('[AG] Could not load AI message from storage:', e.message);
+        updateAiButton(getFallbackAiMessage());
+      }
+    }
+    loadAiMessage();
+
+    // Re-check when storage changes
+    try {
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.ag_ai_messages || changes.ag_ai_outreach_msg || changes.ag_current_driver) {
+          loadAiMessage();
+        }
+      });
+    } catch (e) { /* ignore */ }
+
+    aiBtn.addEventListener('click', async () => {
+      if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
+      const msg = fixNameInMessage(currentAiTemplate);
+      const pasted = await pasteIntoInput(msg);
+      saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
+      if (pasted) {
+        showToast('🤖 AI message pasted!');
+      } else {
+        try {
+          await navigator.clipboard.writeText(msg);
+          showToast('📋 AI message copied!');
+        } catch (e) {
+          showToast('Could not paste — copy manually');
+        }
+      }
+    });
 
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
       const groupTitle = document.createElement('div');
