@@ -676,23 +676,23 @@ def render_dashboard(dashboard, daily_metrics, drivers):
         """Check if a date falls within the visible pipeline window.
         
         Rules:
-        - Show all activity from the last 30 days (rolling window)
+        - Show all activity from the last 14 days (rolling window)
         - No calendar month boundaries — drivers never vanish overnight
         """
         if not d:
             return False
         age_days = (now - d).days if isinstance(d, datetime) else 999
-        return age_days <= 30
+        return age_days <= 14
 
     # ═══════════════════════════════════════════════════════════════════
     # PIPELINE VISIBILITY — Airtable is the SINGLE source of truth.
     # Every stage uses its stage-specific date. ZERO fallbacks.
-    # Rolling 30-day window for ALL stages.
+    # Rolling 14-day window for ALL stages.
     # Google Sheets feed Airtable. Airtable feeds the pipeline.
     # ═══════════════════════════════════════════════════════════════════
 
     def is_in_timeframe(r, date_attr):
-        """Show contact only if its STAGE DATE is within the last 30 days.
+        """Show contact only if its STAGE DATE is within the last 14 days.
         No fallbacks. If the stage date is missing, the contact is not visible.
         Airtable is the bible — if the date isn't there, fix the data."""
         d = _normalize_dt(getattr(r, date_attr, None))
