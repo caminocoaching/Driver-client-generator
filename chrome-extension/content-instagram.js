@@ -84,6 +84,9 @@
     // --- COLD OUTREACH (randomly picks variation when clicked) ---
     "Cold Outreach": `__RANDOM_OUTREACH__`,
 
+    // --- END OF SEASON OUTREACH (randomly picks variation when clicked) ---
+    "End of Season": `__RANDOM_END_OF_SEASON__`,
+
     // --- COLD OUTREACH RESPONSES / REPLIES ---
     "Great Work (Reply)": `Thanks for the reply {name},\nThat's Great work well done!\n\nNot sure if you know, I'm a Flow Performance Coach. A bit different from the usual driver-coach.\n\nI work with drivers in many championships on the mental side of racing, helping them access the Flow State where performance becomes automatic, consistent, and confident under pressure.\n\nI've built a free post-race assessment tool that shows exactly where your gains are hiding and how to unlock them in time for the next round.\n\nWant me to send it over?`,
 
@@ -130,6 +133,7 @@
 
   const TEMPLATE_GROUPS = {
     "🏁 COLD OUTREACH": ["Cold Outreach", "Offer Free Training"],
+    "🏆 END OF SEASON": ["End of Season"],
     "REPLIES": ["Great Work (Reply)", "Productive (Reply)", "Tough Weekend (Reply)"],
     "SEND LINKS": ["Send Link (Yes)", "Send Blueprint Link"],
     "FOLLOW-UPS": ["Follow-Up (Review Done → Blueprint)", "Follow-Up (Link Sent Check)", "Follow-Up (Review 2 Days) V1", "Follow-Up (Review 2 Days) V2"],
@@ -140,6 +144,7 @@
   // Map each template to the pipeline stage it should advance the driver to
   const TEMPLATE_STAGE_MAP = {
     "Cold Outreach": "Messaged",
+    "End of Season": "Messaged",
     "Great Work (Reply)": "Replied",
     "Productive (Reply)": "Replied",
     "Tough Weekend (Reply)": "Replied",
@@ -161,11 +166,10 @@
   };
 
   // Templates that should create the rider in the database if they don't exist
-  const CREATE_RIDER_TEMPLATES = ["Cold Outreach", "Offer Free Training"];
+  const CREATE_RIDER_TEMPLATES = ["Cold Outreach", "End of Season", "Offer Free Training"];
 
   // Race weekend outreach — uses saveOutreach (no stage change, panel stays open)
-  // Only Cold Outreach is race-weekend related and needs circuit
-  const RACE_OUTREACH_TEMPLATES = ["Cold Outreach"];
+  const RACE_OUTREACH_TEMPLATES = ["Cold Outreach", "End of Season"];
 
   // Cold outreach message variations — one is picked randomly per click
   const COLD_OUTREACH_VARIATIONS = [
@@ -177,8 +181,22 @@
     `Hiya {name}, I see you were racing at {circuit} at the weekend. How did it go for you?`,
   ];
 
+  // End of season outreach variations — uses {championship} placeholder
+  const END_OF_SEASON_VARIATIONS = [
+    `Hey {name}, I see you were competing in the {championship} this season. How did it go for you?`,
+    `Hi {name}, saw you were racing in the {championship} this season. How was it?`,
+    `Hey {name}, I noticed you competed in the {championship} this season. How did you get on?`,
+    `Hi {name}, looks like you had a season in the {championship}. How did it go?`,
+    `Hey {name}, I see you were part of the {championship} this season. How was it for you?`,
+    `Hiya {name}, I noticed you raced in the {championship} this season. How did you find it?`,
+  ];
+
   function getRandomOutreach() {
     return COLD_OUTREACH_VARIATIONS[Math.floor(Math.random() * COLD_OUTREACH_VARIATIONS.length)];
+  }
+
+  function getRandomEndOfSeason() {
+    return END_OF_SEASON_VARIATIONS[Math.floor(Math.random() * END_OF_SEASON_VARIATIONS.length)];
   }
 
   // ── Smart name cleaning — matches Facebook's camelCase / dot / underscore logic ──
@@ -1579,7 +1597,7 @@
         btn.className = CREATE_RIDER_TEMPLATES.includes(key)
           ? 'ag-template-btn ag-outreach'
           : 'ag-template-btn';
-        const preview = template.replace('{name}', getFirstName(currentName)).replace('{circuit}', '___').substring(0, 80);
+        const preview = template.replace('{name}', getFirstName(currentName)).replace('{circuit}', '___').replace('{championship}', '___').substring(0, 80);
         btn.innerHTML = `
           <span class="ag-tmpl-name">${key}</span>
           <span class="ag-tmpl-preview">${preview}...</span>
@@ -1593,8 +1611,22 @@
             if (circuitInput) circuitInput.focus();
             return;
           }
-          let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach() : template;
-          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName)).replace(/\{circuit\}/g, circuit);
+          // Get championship from chrome.storage (synced from Streamlit app)
+          let championship = '';
+          try {
+            const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
+            championship = data.ag_championship || '';
+          } catch (e) { /* ignore */ }
+          if (template.includes('{championship}') && !championship) {
+            showToast('⚠️ Select a championship in the pipeline app first');
+            return;
+          }
+          let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach()
+            : template.includes('__RANDOM_END_OF_SEASON__') ? getRandomEndOfSeason()
+              : template;
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName))
+            .replace(/\{circuit\}/g, circuit)
+            .replace(/\{championship\}/g, championship);
           const pasted = await pasteIntoInput(msg);
           const stage = TEMPLATE_STAGE_MAP[key];
           const shouldCreate = CREATE_RIDER_TEMPLATES.includes(key);
@@ -1691,8 +1723,21 @@
             if (circuitInput) circuitInput.focus();
             return;
           }
-          let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach() : template;
-          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName)).replace(/\{circuit\}/g, circuit);
+          let championship = '';
+          try {
+            const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
+            championship = data.ag_championship || '';
+          } catch (e) { /* ignore */ }
+          if (template.includes('{championship}') && !championship) {
+            showToast('⚠️ Select a championship in the pipeline app first');
+            return;
+          }
+          let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach()
+            : template.includes('__RANDOM_END_OF_SEASON__') ? getRandomEndOfSeason()
+              : template;
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName))
+            .replace(/\{circuit\}/g, circuit)
+            .replace(/\{championship\}/g, championship);
           const pasted = await pasteIntoInput(msg);
           const stage = TEMPLATE_STAGE_MAP[key];
           const shouldCreate = CREATE_RIDER_TEMPLATES.includes(key);
