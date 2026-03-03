@@ -722,15 +722,15 @@ def render_dashboard(dashboard, daily_metrics, drivers):
     # Each driver stays in their actual stage column.
     # Cards change colour when a driver needs follow-up (24h+ stale).
     STAGES = [
-        {"label": "Messaged", "val": [FunnelStage.MESSAGED, FunnelStage.OUTREACH], "date_attr": 'outreach_date'},
-        {"label": "Replied", "val": [FunnelStage.REPLIED], "date_attr": 'replied_date'},
-        {"label": "Link Sent", "val": [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT], "date_attr": 'link_sent_date'},
-        {"label": "Race Review", "val": [FunnelStage.RACE_WEEKEND, FunnelStage.RACE_REVIEW_COMPLETE], "date_attr": 'race_weekend_review_date'},
-        {"label": "Registered", "val": [FunnelStage.BLUEPRINT_STARTED, FunnelStage.REGISTERED], "date_attr": 'registered_date'},
-        {"label": "Day 1", "val": [FunnelStage.DAY1_COMPLETE], "date_attr": 'day1_complete_date'},
-        {"label": "Day 2", "val": [FunnelStage.DAY2_COMPLETE], "date_attr": 'day2_complete_date'},
-        {"label": "Call Booked", "val": [FunnelStage.STRATEGY_CALL_BOOKED], "date_attr": 'strategy_call_booked_date'},
-        {"label": "Clients / Won", "val": [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED], "date_attr": 'sale_closed_date'},
+        {"label": "Messaged", "emoji": "📨", "val": [FunnelStage.MESSAGED, FunnelStage.OUTREACH], "date_attr": 'outreach_date', "next_action": "Wait for reply", "color": "#3b82f6"},
+        {"label": "Replied", "emoji": "↩️", "val": [FunnelStage.REPLIED], "date_attr": 'replied_date', "next_action": "Send review link", "color": "#6366f1"},
+        {"label": "Link Sent", "emoji": "🔗", "val": [FunnelStage.LINK_SENT, FunnelStage.BLUEPRINT_LINK_SENT], "date_attr": 'link_sent_date', "next_action": "Chase review completion", "color": "#8b5cf6"},
+        {"label": "Race Review", "emoji": "📊", "val": [FunnelStage.RACE_WEEKEND, FunnelStage.RACE_REVIEW_COMPLETE], "date_attr": 'race_weekend_review_date', "next_action": "Send Blueprint link", "color": "#a855f7"},
+        {"label": "Registered", "emoji": "📋", "val": [FunnelStage.BLUEPRINT_STARTED, FunnelStage.REGISTERED], "date_attr": 'registered_date', "next_action": "Nudge to start Day 1", "color": "#0d9488"},
+        {"label": "Day 1", "emoji": "1️⃣", "val": [FunnelStage.DAY1_COMPLETE], "date_attr": 'day1_complete_date', "next_action": "Nudge to do Day 2", "color": "#059669"},
+        {"label": "Day 2", "emoji": "2️⃣", "val": [FunnelStage.DAY2_COMPLETE], "date_attr": 'day2_complete_date', "next_action": "Book strategy call", "color": "#16a34a"},
+        {"label": "Call Booked", "emoji": "📞", "val": [FunnelStage.STRATEGY_CALL_BOOKED, FunnelStage.STRATEGY_CALL_NO_SHOW], "date_attr": 'strategy_call_booked_date', "next_action": "Close the sale", "color": "#ca8a04"},
+        {"label": "Clients", "emoji": "🏆", "val": [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED], "date_attr": 'sale_closed_date', "next_action": "Onboard", "color": "#16a34a"},
     ]
 
     def _needs_follow_up(r, date_attr):
@@ -776,6 +776,13 @@ def render_dashboard(dashboard, daily_metrics, drivers):
             return max(0, (now - d).days)
         return 0
 
+    def _hours_at_stage(r, date_attr):
+        """Hours since entering current stage."""
+        d = getattr(r, date_attr, None)
+        if d and isinstance(d, datetime):
+            return max(0, (now - d).total_seconds() / 3600)
+        return 0
+
     # Helper: is this driver stalled? (past their threshold)
     def _is_stalled(r):
         threshold = STALL_THRESHOLDS.get(r.current_stage)
@@ -790,6 +797,68 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                 break
         return False
 
+    # ---- GLOBAL PIPELINE CSS ----
+    st.markdown("""
+        <style>
+        .pipeline-card {
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            border-left: 4px solid transparent;
+            transition: transform 0.15s ease;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .pipeline-card:hover {
+            transform: translateX(2px);
+        }
+        .card-fresh {
+            background: rgba(16, 185, 129, 0.08);
+            border-left-color: #10b981;
+        }
+        .card-waiting {
+            background: rgba(245, 158, 11, 0.10);
+            border-left-color: #f59e0b;
+        }
+        .card-urgent {
+            background: rgba(239, 68, 68, 0.10);
+            border-left-color: #ef4444;
+        }
+        .card-won {
+            background: rgba(16, 185, 129, 0.15);
+            border-left-color: #10b981;
+        }
+        .action-ok { color: #10b981; font-size: 11px; }
+        .action-needed { color: #f59e0b; font-size: 11px; }
+        .action-urgent { color: #ef4444; font-size: 11px; font-weight: 600; }
+        .stage-header {
+            padding: 6px 10px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 700;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .stage-count {
+            text-align: center;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 4px;
+        }
+        .fu-badge {
+            background: #f59e0b;
+            color: #000;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 4px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     # ---- FOLLOW-UP ALERT BANNER ----
     _followup_count = sum(
         1 for _r in drivers.values()
@@ -803,17 +872,10 @@ def render_dashboard(dashboard, daily_metrics, drivers):
         st.warning(f"⚠️ **{_followup_count} driver{'s' if _followup_count != 1 else ''} need follow-up** — look for 🟠🔴 cards below")
 
     # --- PIPELINE VIEW ---
-    # Drivers stay in their actual stage column.
-    # Cards turn colour when they need follow-up (24h+ stale).
-    # A clipboard icon lets you copy a suggested follow-up message.
-    # IMPORTANT: Only drivers with activity in the selected timeframe are shown.
     cols = st.columns(len(STAGES))
 
     for idx, stage in enumerate(STAGES):
         with cols[idx]:
-            # Header
-            st.markdown(f"**{stage['label']}**")
-
             # Collect ALL drivers at this stage
             target_vals = [s.value for s in stage['val']]
             all_stage_drivers = [
@@ -837,37 +899,76 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                     seen_ids.add(dedup_key)
                 stage_drivers.append(r)
 
-            # SORT: Latest activity first, then alphabetical
-            stage_drivers.sort(key=lambda x: _driver_sort_key(x, stage['date_attr']), reverse=True)
+            # SORT: Priority — stalled/needing action first, then by date
+            def _priority_key(r):
+                is_stalled = _is_stalled(r)
+                needs_fu = _needs_follow_up(r, stage['date_attr'])
+                days = _days_at_stage(r, stage['date_attr'])
+                # Priority: stalled (0) > needs follow-up (1) > fresh (2)
+                if is_stalled:
+                    priority = 0
+                elif needs_fu:
+                    priority = 1
+                else:
+                    priority = 2
+                return (priority, -days)
+
+            stage_drivers.sort(key=_priority_key)
 
             # Count Badge + follow-up count
             fu_in_col = sum(1 for r in stage_drivers if _needs_follow_up(r, stage['date_attr']))
-            count_text = f"{len(stage_drivers)}"
-            if fu_in_col > 0:
-                count_text += f" · 📩{fu_in_col}"
-            st.caption(count_text)
+
+            # Color-coded header
+            fu_html = f'<span class="fu-badge">📩 {fu_in_col}</span>' if fu_in_col > 0 else ""
+            st.markdown(
+                f'<div class="stage-header" style="background:{stage["color"]}">'
+                f'{stage["emoji"]} {stage["label"]}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # Count display with follow-up badge
+            count_html = f'<div class="stage-count">{len(stage_drivers)} driver{"s" if len(stage_drivers) != 1 else ""}{fu_html}</div>'
+            st.markdown(count_html, unsafe_allow_html=True)
+
             st.divider()
 
+            # ── DRIVER CARDS ──
             for ri, r in enumerate(stage_drivers):
-                 # 1. Days at stage
                  days = _days_at_stage(r, stage['date_attr'])
+                 hours = _hours_at_stage(r, stage['date_attr'])
                  needs_fu = _needs_follow_up(r, stage['date_attr'])
 
-                 # 2. Urgency icon — colour changes when follow-up needed
-                 if r.is_disqualified:
-                     status_icon = "🚫"
-                 elif r.current_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
-                     status_icon = "✅"
-                 elif needs_fu and days >= 7:
-                     status_icon = "🔴"
+                 # Determine card class and action text
+                 is_client = r.current_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]
+                 is_no_show = r.current_stage == FunnelStage.STRATEGY_CALL_NO_SHOW
+                 if is_client:
+                     card_class = "card-won"
+                     action_class = "action-ok"
+                     action_text = "✅ Won"
+                 elif is_no_show:
+                     card_class = "card-urgent"
+                     action_class = "action-urgent"
+                     action_text = "📵 NO SHOW — Rebook call"
                  elif needs_fu and days >= 3:
-                     status_icon = "🟠"
+                     card_class = "card-urgent"
+                     action_class = "action-urgent"
+                     action_text = f"🔴 {days}d — {stage['next_action']}"
                  elif needs_fu:
-                     status_icon = "🟡"
+                     card_class = "card-waiting"
+                     action_class = "action-needed"
+                     action_text = f"🟡 {days}d — {stage['next_action']}"
                  else:
-                     status_icon = "🟢"
+                     card_class = "card-fresh"
+                     action_class = "action-ok"
+                     if hours < 1:
+                         action_text = "🟢 Just now"
+                     elif hours < 24:
+                         action_text = f"🟢 {int(hours)}h ago"
+                     else:
+                         action_text = f"🟢 {days}d ago"
 
-                 # 3. Name — check real name first, then extract from email slug
+                 # Name
                  real_name = f"{r.first_name} {r.last_name}".strip()
                  if real_name:
                      display_name = real_name
@@ -880,12 +981,11 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                  else:
                      display_name = "Unknown"
 
-                 # 4. Build label: icon name + day counter + follow-up indicator
-                 btn_label = f"{status_icon} {display_name}"
-                 if days > 0 and r.current_stage not in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
-                     btn_label += f" · {days}d"
+                 # Date display
+                 stage_date = getattr(r, stage['date_attr'], None)
+                 date_str = stage_date.strftime('%d %b') if stage_date else ""
 
-                 # ✅ = follow-up sent recently, 📩 = follow-up needed
+                 # Follow-up sent recently?
                  import re as _re_pipe
                  _r_notes = r.notes or ""
                  _fu_sent_m = _re_pipe.search(r'\[(\d{2} \w{3} \d{2}:\d{2}) ✅\]', _r_notes)
@@ -896,13 +996,35 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                          _fu_sent_ok = (now - _fu_ts).total_seconds() / 3600 <= 48
                      except ValueError:
                          pass
-                 if _fu_sent_ok:
-                     btn_label += " ✅"
-                 elif needs_fu:
-                     btn_label += " 📩"
 
-                 # BUTTON TRIGGER (DIALOG) — set session state, early check opens it
-                 if st.button(btn_label, key=f"btn_card_{r.email}_{idx}_{ri}", use_container_width=True):
+                 if _fu_sent_ok:
+                     action_text = "✅ Followed up"
+                     action_class = "action-ok"
+                     card_class = "card-fresh"
+
+                 # Build button label (keeping button for interactivity)
+                 if is_client:
+                     btn_icon = "🏆"
+                 elif is_no_show:
+                     btn_icon = "📵"
+                 elif needs_fu and days >= 3:
+                     btn_icon = "🔴"
+                 elif needs_fu:
+                     btn_icon = "🟡"
+                 else:
+                     btn_icon = "🟢"
+
+                 # Render card HTML + button
+                 st.markdown(
+                     f'<div class="pipeline-card {card_class}">'
+                     f'<div style="font-weight:600;">{btn_icon} {display_name}</div>'
+                     f'<div class="{action_class}">{action_text}</div>'
+                     f'<div style="font-size:11px;color:#6b7280;">📅 {date_str}</div>'
+                     f'</div>',
+                     unsafe_allow_html=True
+                 )
+
+                 if st.button(f"Open {display_name}", key=f"btn_card_{r.email}_{idx}_{ri}", use_container_width=True, label_visibility="collapsed"):
                      st.session_state['_open_driver_card'] = r.email
                      st.rerun()
 

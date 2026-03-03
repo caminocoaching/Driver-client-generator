@@ -64,6 +64,7 @@ _STAGE_DATE_ATTRS = {
     FunnelStage.DAY1_COMPLETE: 'day1_complete_date',
     FunnelStage.DAY2_COMPLETE: 'day2_complete_date',
     FunnelStage.STRATEGY_CALL_BOOKED: 'strategy_call_booked_date',
+    FunnelStage.STRATEGY_CALL_NO_SHOW: 'strategy_call_booked_date',
 }
 
 # Follow-up timing matrix (from Blueprint Section 4)
@@ -1635,9 +1636,10 @@ def render_unified_card_content(driver, dashboard, key_suffix="", default_event_
             badges += f" · {driver.championship}"
         st.markdown(badges)
 
-        # Email display (hide internal slugs)
+        # Email display (hide internal slugs) — links to GoHighLevel CRM
+        _ghl_url = "https://app.usegoplus.com/v2/location/C03hMrgoj4FLALDMqpWr/contacts/smart_list/All"
         if driver.email and not driver.email.startswith("no_email_"):
-            st.caption(f"✉️ {driver.email}")
+            st.markdown(f'✉️ <a href="{_ghl_url}" target="_blank" style="color:inherit;text-decoration:underline dotted;">{driver.email}</a>', unsafe_allow_html=True)
         if driver.phone:
             st.caption(f"📱 {driver.phone}")
         
@@ -1914,12 +1916,19 @@ def render_unified_card_content(driver, dashboard, key_suffix="", default_event_
             _update_stage_fast(FunnelStage.DAY1_COMPLETE, "Day 1 Complete!")
 
         # Row 3: Late funnel
-        t1, t2, t3 = st.columns(3)
+        t1, t2, t3, t4 = st.columns(4)
         if t1.button("✅ Day 2", key=f"q_d2_{effective_email}_{key_suffix}", use_container_width=True):
             _update_stage_fast(FunnelStage.DAY2_COMPLETE, "Day 2 Complete!")
         if t2.button("📞 Call Booked", key=f"q_call_{effective_email}_{key_suffix}", use_container_width=True):
             _update_stage_fast(FunnelStage.STRATEGY_CALL_BOOKED, "Call Booked!")
-        if t3.button("🏆 Client Won", key=f"q_client_{effective_email}_{key_suffix}", use_container_width=True):
+        if t3.button("📵 No Show", key=f"q_noshow_{effective_email}_{key_suffix}", use_container_width=True):
+            # Log the no-show in notes
+            timestamp = datetime.now().strftime("%d %b %H:%M")
+            noshow_note = f"[{timestamp}] 📵 Strategy call no-show"
+            existing_notes = driver.notes or ""
+            driver.notes = f"{noshow_note}\n{existing_notes}" if existing_notes.strip() else noshow_note
+            _update_stage_fast(FunnelStage.STRATEGY_CALL_NO_SHOW, "Marked as No Show")
+        if t4.button("🏆 Client Won", key=f"q_client_{effective_email}_{key_suffix}", use_container_width=True):
             _update_stage_fast(FunnelStage.CLIENT, "Client Won!")
 
         # Disqualify row

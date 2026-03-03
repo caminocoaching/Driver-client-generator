@@ -998,6 +998,7 @@ class DataLoader:
             FunnelStage.FLOW_PROFILE_COMPLETED: 3,
             FunnelStage.DAY1_COMPLETE: 9, FunnelStage.DAY2_COMPLETE: 10,
             FunnelStage.STRATEGY_CALL_BOOKED: 11,
+            FunnelStage.STRATEGY_CALL_NO_SHOW: 11,
             FunnelStage.CLIENT: 12, FunnelStage.SALE_CLOSED: 12,
         }
 
@@ -1370,6 +1371,7 @@ class DataLoader:
                     if s_clean in ['lost', 'not a fit']: found_stage = FunnelStage.NOT_A_FIT
                     if s_clean in ['registered', 'blueprint started']: found_stage = FunnelStage.BLUEPRINT_STARTED
                     if s_clean in ['strategy call', 'call booked', 'strategy call booked']: found_stage = FunnelStage.STRATEGY_CALL_BOOKED
+                    elif s_clean in ['no show', 'strategy call no show', 'call no show']: found_stage = FunnelStage.STRATEGY_CALL_NO_SHOW
                     # Stage-like values with slight differences
                     if s_clean in ['day 1', 'day 1 complete']: found_stage = FunnelStage.DAY1_COMPLETE
                     if s_clean in ['day 2', 'day 2 complete']: found_stage = FunnelStage.DAY2_COMPLETE
@@ -3343,6 +3345,13 @@ class FunnelDashboard:
             elif new_stage == FunnelStage.STRATEGY_CALL_BOOKED:
                 driver.strategy_call_booked_date = datetime.now()
 
+            elif new_stage == FunnelStage.STRATEGY_CALL_NO_SHOW:
+                # Keep the original booking date if it exists, just change the stage
+                if not driver.strategy_call_booked_date:
+                    driver.strategy_call_booked_date = datetime.now()
+                # Set a follow-up so they appear as needing action
+                driver.follow_up_date = datetime.now() + timedelta(hours=24)
+
             elif new_stage == FunnelStage.SALE_CLOSED:
                 driver.sale_closed_date = datetime.now()
                 if sale_value is not None:
@@ -3387,7 +3396,7 @@ class FunnelDashboard:
                     sync_data["Date Day 1 Assessment"] = _now_str
                 elif new_stage == FunnelStage.DAY2_COMPLETE:
                     sync_data["Date Day 2 Assessment"] = _now_str
-                elif new_stage == FunnelStage.STRATEGY_CALL_BOOKED:
+                elif new_stage in [FunnelStage.STRATEGY_CALL_BOOKED, FunnelStage.STRATEGY_CALL_NO_SHOW]:
                     sync_data["Date Strategy Call"] = _now_str
                 elif new_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED]:
                     sync_data["Date Sale Closed"] = _now_str
