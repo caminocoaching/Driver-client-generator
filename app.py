@@ -1257,19 +1257,28 @@ def render_race_outreach(dashboard):
                                         dashboard.update_driver_stage(_email, FunnelStage.CONTACT)
                                         _imported += 1
                             _msgs.append(f"🏎️ {_imported} drivers imported")
-                        # 3. Auto-select championship
+                        # 3. Auto-select championship — reset widget keys so UI updates
                         st.session_state.global_championship = _champ_name
+                        st.session_state.pop('_outreach_champ', None)      # Force selectbox to re-read from global_championship
+                        st.session_state.pop('_outreach_round_idx', None)  # Let round selector auto-pick last finished
+                        # Sync to chrome extension
+                        try:
+                            st.query_params['championship'] = _champ_name
+                        except Exception:
+                            pass
                         # 4. Find last finished event → auto-fill circuit
                         _last_fin = _get_last_finished_round(_champ_name, _today)
                         if _last_fin:
                             _last_rd, _days = _last_fin
                             _circuit_name = _strip_flags(_last_rd['name'])
                             _persist_circuit(_circuit_name)
+                            st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_last_rd)})"
                             _msgs.append(f"🏁 Circuit: **{_circuit_name}** ({_last_rd['round']}, {_days}d ago)")
                         elif _has_cal and RACE_CALENDARS.get(_champ_name, {}).get('rounds'):
                             _first_rd = RACE_CALENDARS[_champ_name]['rounds'][0]
                             _circuit_name = _strip_flags(_first_rd['name'])
                             _persist_circuit(_circuit_name)
+                            st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_first_rd)})"
                             _msgs.append(f"🏁 Circuit: **{_circuit_name}** (next event)")
                         st.success("✅ **All imported!** " + " · ".join(_msgs))
                         st.toast(f"🚀 {_champ_name} — ready for outreach!")
