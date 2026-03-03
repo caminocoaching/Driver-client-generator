@@ -319,6 +319,140 @@ class ChampionshipResearcher:
         extracted["query"] = championship_query
 
         # ── Post-processing ──
+        self._post_process(extracted)
+
+        _progress(6, f"Done! Found {len(extracted.get('drivers', []))} drivers, "
+                     f"{len(extracted.get('calendar', []))} rounds")
+
+        return extracted
+
+    def research_from_url(self, url: str, progress_callback=None) -> Dict[str, Any]:
+        """
+        Research a championship from a direct URL.
+        
+        1. Fetches the main page
+        2. Discovers related pages (calendar, drivers, results, entry-list)
+        3. Fetches those pages too
+        4. Feeds everything to Gemini for structured extraction
+        
+        This is faster and more accurate than Tavily search for known URLs.
+        """
+        def _progress(step, msg):
+            if progress_callback:
+                progress_callback(step, msg)
+            print(f"[Research URL {step}] {msg}")
+
+        from urllib.parse import urljoin, urlparse
+
+        # ── Step 1: Fetch main page ──
+        _progress(1, f"Fetching {url}...")
+        main_text = _fetch_page_text(url, max_chars=30_000)
+        
+        if not main_text or len(main_text) < 100:
+            return {"error": f"Could not fetch content from {url}"}
+
+        content_parts = [
+            f"\n{'='*60}\n"
+            f"SOURCE: Main Championship Page\n"
+            f"URL: {url}\n"
+            f"{'='*60}\n"
+            f"{main_text}"
+        ]
+        sources = [{"title": "Main Championship Page", "url": url}]
+
+        # ── Step 2: Discover related pages ──
+        _progress(2, "Finding related pages (calendar, drivers, results)...")
+        
+        # Also fetch the raw HTML to extract links
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/120.0.0.0 Safari/537.36"
+            }
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            raw_html = resp.text
+        except Exception:
+            raw_html = ""
+
+        # Find related page URLs from the HTML
+        related_keywords = [
+            'calendar', 'results', 'drivers', 'entry-list', 'entry_list',
+            'standings', 'schedule', 'rounds', 'teams', 'competitors',
+            'participants', 'grid', 'lineup'
+        ]
+        
+        parsed_base = urlparse(url)
+        base_domain = parsed_base.netloc
+        related_urls = set()
+        
+        if raw_html:
+            # Find all href links
+            import re as _re
+            links = _re.findall(r'href=["\']([^"\']+)["\']', raw_html)
+            for link in links:
+                full_url = urljoin(url, link)
+                parsed = urlparse(full_url)
+                # Only follow links on the same domain
+                if parsed.netloc != base_domain:
+                    continue
+                # Check if the URL path contains any related keywords
+                path_lower = parsed.path.lower()
+                if any(kw in path_lower for kw in related_keywords):
+                    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                    if clean_url.rstrip('/') != url.rstrip('/'):
+                        related_urls.add(clean_url)
+
+        _progress(3, f"Found {len(related_urls)} related pages to fetch...")
+        
+        # ── Step 3: Fetch related pages ──
+        for i, rurl in enumerate(list(related_urls)[:6]):  # Limit to 6 related pages
+            _progress(3, f"Fetching page {i+1}/{min(len(related_urls), 6)}: {rurl}")
+            page_text = _fetch_page_text(rurl, max_chars=20_000)
+            if page_text and len(page_text) > 50:
+                # Infer title from URL path
+                path_parts = urlparse(rurl).path.rstrip('/').split('/')
+                title = ' '.join(p.replace('-', ' ').replace('_', ' ').title() 
+                                for p in path_parts[-2:] if p)
+                content_parts.append(
+                    f"\n{'='*60}\n"
+                    f"SOURCE: {title}\n"
+                    f"URL: {rurl}\n"
+                    f"{'='*60}\n"
+                    f"{page_text}"
+                )
+                sources.append({"title": title, "url": rurl})
+
+        combined_content = "\n".join(content_parts)
+        _progress(4, f"Collected {len(combined_content):,} chars from {len(sources)} pages")
+
+        # ── Step 4: AI Extraction ──
+        _progress(5, "AI analyzing content...")
+        
+        # Use a more descriptive query derived from the URL
+        query_hint = urlparse(url).path.strip('/').replace('-', ' ').replace('/', ' ')
+        extracted = _gemini_extract(self.gemini_key, query_hint, combined_content)
+        
+        if "error" in extracted:
+            return extracted
+
+        # Enrich with metadata
+        extracted["sources"] = sources
+        extracted["searched_at"] = datetime.now().isoformat()
+        extracted["query"] = query_hint
+        extracted["source_url"] = url
+
+        # ── Post-processing ──
+        self._post_process(extracted)
+
+        _progress(6, f"Done! Found {len(extracted.get('drivers', []))} drivers, "
+                     f"{len(extracted.get('calendar', []))} rounds")
+
+        return extracted
+
+    def _post_process(self, extracted: Dict):
+        """Clean up extracted data — validate dates, deduplicate drivers."""
         # Ensure calendar dates are valid
         for event in extracted.get("calendar", []):
             for key in ["start_date", "end_date"]:
@@ -338,11 +472,6 @@ class ChampionshipResearcher:
                 seen_drivers.add(key)
                 unique_drivers.append(d)
         extracted["drivers"] = unique_drivers
-
-        _progress(6, f"Done! Found {len(extracted.get('drivers', []))} drivers, "
-                     f"{len(extracted.get('calendar', []))} rounds")
-
-        return extracted
 
 
 # ---------------------------------------------------------------------------

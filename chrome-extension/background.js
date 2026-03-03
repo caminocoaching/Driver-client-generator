@@ -217,10 +217,12 @@ async function saveUrlToAirtable(driverName, fbUrl, igUrl) {
     return { success: true, method: 'airtable_direct', recordId: recordId };
   } else {
     // ── GUARD: Don't create records with username-looking names ──
-    // If the name has no space, it's likely a social media handle (e.g. "ollysimpson45")
-    // and should NOT create a new record — the real rider record should be matched by URL above
-    if (!driverName.includes(' ')) {
-      console.warn('[AG] saveUrl: Refusing to create record with username-like name: "' + driverName + '"');
+    // If the name has no space AND no social URL, it's likely a social media handle
+    // and should NOT create a new record. But if we have a URL, allow creation
+    // since the URL is a reliable identifier.
+    var hasSocialUrl = !!(fields['IG URL'] || fields['FB URL']);
+    if (!driverName.includes(' ') && !hasSocialUrl) {
+      console.warn('[AG] saveUrl: Refusing to create record with username-like name: "' + driverName + '" and no URL');
       return { success: false, method: 'blocked_username', reason: 'Name looks like a social handle' };
     }
     var np = driverName.trim().split(' ');
@@ -591,6 +593,7 @@ async function saveDriverToAirtable(driverName, fields) {
     if (err.error && err.error.type === 'UNKNOWN_FIELD_NAME') {
       var m = err.error.message ? err.error.message.match(/Unknown field name: "(.+?)"/) : null;
       if (m && cleanFields[m[1]]) {
+        console.warn('[AG] ⚠️ Airtable rejected field "' + m[1] + '" — removing and retrying');
         delete cleanFields[m[1]];
         return fetch(url, { method: method, headers: headers, body: JSON.stringify({ fields: cleanFields, typecast: true }) });
       }
@@ -651,10 +654,13 @@ async function saveDriverToAirtable(driverName, fields) {
     console.log('[AG] ✅ Saved: ' + driverName + ' (' + searchData.matchType + ', record ' + recordId + ')');
     return { success: true, method: 'airtable_direct', recordId: recordId, matchType: searchData.matchType, preferredName: preferredName };
   } else {
-    // Create new — refuse social handles
-    if (looksLikeUsername(driverName)) {
-      console.warn('[AG] Skipped creating "' + driverName + '" — looks like a social handle');
-      return { success: false, method: 'skipped_username' };
+    // Create new — refuse social handles UNLESS we have a social URL to identify them.
+    // On Instagram, names often lack spaces (e.g. "cameronhill") but the IG profile URL
+    // is a reliable identifier and should allow record creation.
+    var hasSocialUrl = !!(cleanFields['IG URL'] || cleanFields['FB URL']);
+    if (looksLikeUsername(driverName) && !hasSocialUrl) {
+      console.warn('[AG] Skipped creating "' + driverName + '" — looks like a social handle and no URL');
+      return { success: false, method: 'skipped_username', error: 'Name looks like a username — open their profile first so we can capture the URL' };
     }
     var np = driverName.trim().split(' ');
     cleanFields['First Name'] = cleanFields['First Name'] || np[0] || driverName;
@@ -676,9 +682,9 @@ async function saveDriverToAirtable(driverName, fields) {
 // ══════════════════════════════════════════════
 chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   if (message.type === 'updateStage') {
-    var driver = message.rider, stage = message.stage;
+    var driver = message.driver, stage = message.stage;
     var createRider = message.createRider, socialUrl = message.socialUrl, circuit = message.circuit;
-    if (!rider || !stage) {
+    if (!driver || !stage) {
       sendResponse({ success: false, error: 'Missing rider or stage' });
       return true;
     }
@@ -700,16 +706,16 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
         else fields['FB URL'] = socialUrl.split('?')[0].split('#')[0];
       }
       if (circuit) fields['Championship'] = circuit;
-      saveDriverToAirtable(rider, fields).then(function (r) {
+      saveDriverToAirtable(driver, fields).then(function (r) {
         sendResponse(r);
       }).catch(function (err) {
         console.warn('[AG] Direct save failed:', err.message);
-        enqueueFailedSave(rider, fields);
+        enqueueFailedSave(driver, fields);
         sendResponse({ success: false, error: err.message });
       });
     } else {
       var params = new URLSearchParams();
-      params.set('driver', rider); params.set('set_stage', stage);
+      params.set('driver', driver); params.set('set_stage', stage);
       if (createRider) params.set('create_rider', 'true');
       if (socialUrl) params.set('social_url', socialUrl);
       if (circuit) params.set('circuit', circuit);
@@ -719,7 +725,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveConversation') {
-    var rider2 = message.rider, messages = message.messages;
+    var rider2 = message.driver, messages = message.messages;
     if (!rider2 || !messages) {
       sendResponse({ success: false, error: 'Missing rider or messages' });
       return true;
@@ -738,7 +744,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveOutreach') {
-    var rider3 = message.rider, socialUrl3 = message.socialUrl;
+    var rider3 = message.driver, socialUrl3 = message.socialUrl;
     var msgText = message.message, template = message.template;
     var createRider3 = message.createRider, circuit3 = message.circuit, championship3 = message.championship;
     if (!rider3) {
@@ -779,7 +785,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === 'saveUrl') {
-    var rider4 = message.rider, fbUrl4 = message.fbUrl, igUrl4 = message.igUrl;
+    var rider4 = message.driver, fbUrl4 = message.fbUrl, igUrl4 = message.igUrl;
     if (!rider4) {
       sendResponse({ success: false, error: 'Missing driver name' });
       return true;

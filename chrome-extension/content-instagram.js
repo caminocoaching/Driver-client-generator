@@ -181,6 +181,29 @@
     return COLD_OUTREACH_VARIATIONS[Math.floor(Math.random() * COLD_OUTREACH_VARIATIONS.length)];
   }
 
+  // ── Smart name cleaning — matches Facebook's camelCase / dot / underscore logic ──
+  // Ensures the driver name sent to the background has a space ("Cameron Hill")
+  // so looksLikeUsername() doesn't reject it.
+  function smartNameClean(name) {
+    if (!name) return name;
+    var n = name.trim();
+    // Already has a space? It's a real name — just return it
+    if (n.includes(' ')) return n;
+    // CamelCase split: "CameronHill" → "Cameron Hill"
+    var spaced = n.replace(/([a-z])([A-Z])/g, '$1 $2');
+    if (spaced.includes(' ')) return spaced;
+    // Dot-separated: "cameron.hill" → "Cameron Hill"
+    if (n.includes('.')) return n.split('.').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+    // Underscore-separated: "cameron_hill" → "Cameron Hill"
+    if (n.includes('_')) return n.split('_').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+    // Strip trailing digits: "cameronhill39" → "cameronhill" (still no space — username)
+    var stripped = n.replace(/^\d+/, '').replace(/\d+$/, '').trim();
+    // Try camelCase on stripped version too
+    var reSpaced = stripped.replace(/([a-z])([A-Z])/g, '$1 $2');
+    if (reSpaced.includes(' ')) return reSpaced;
+    return stripped || n;
+  }
+
   // Update rider's pipeline stage via the background service worker.
   // Streamlit needs a full browser page load (WebSocket) to execute its
   // Python script — a simple fetch() just gets the HTML shell. The
@@ -188,13 +211,12 @@
   function updateRiderStage(driverName, stageName, createRider = false) {
     if (!stageName || !driverName) return;
     // Prefer the real name from the pipeline/outreach card over social page names
-    const bestName = pipelineDriverName || driverName;
-    const readable = usernameToReadable(bestName);
+    const bestName = smartNameClean(pipelineDriverName || driverName);
     const circuitInput = document.getElementById('ag-circuit-input');
     const circuit = circuitInput ? circuitInput.value.trim() : '';
     sendRuntimeMessage({
       type: 'updateStage',
-      driver: readable,
+      driver: bestName,
       stage: stageName,
       createRider: createRider,
       socialUrl: getIgProfileUrl() || window.location.href,
@@ -216,16 +238,70 @@
     if (isProfilePage()) return url.split('?')[0].split('#')[0];
 
     // Detect logged-in user's own username to exclude it
-    const selfUsernames = new Set(['_caminocoaching']);
-    // Also try to detect from page — the nav usually has a profile link with the logged-in username
-    const navProfileLink = document.querySelector('a[href="/accounts/edit/"]') ||
-      document.querySelector('span[dir="auto"]');
-    // Extract from the page title or meta
+    const selfUsernames = new Set([
+      '_caminocoaching', 'caminocoaching', 'thecaminocoach',
+      'camino_coaching', 'caminocoach'
+    ]);
+
+    // Auto-detect logged-in username from Instagram sidebar/nav
+    // Instagram sidebar has a "Profile" link: /<your-username>/
+    // It's the only nav link that goes to a non-reserved path
+    const _igReservedPaths = new Set([
+      'explore', 'reels', 'stories', 'direct', 'accounts', 'p', 'tv',
+      'about', 'terms', 'privacy', 'settings', 'nametag', 'directory',
+      'ar', 'developer', 'legal', 'api', 'static', 'lite', 'inbox',
+      'notifications', 'search', 'create'
+    ]);
+
+    // Method 1: Nav links (sidebar on desktop)
+    const navLinks = document.querySelectorAll('nav a[href], div[role="navigation"] a[href]');
+    for (const a of navLinks) {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/^\/([A-Za-z0-9_.]+)\/?$/);
+      if (m && m[1].length >= 2 && !_igReservedPaths.has(m[1].toLowerCase())) {
+        selfUsernames.add(m[1].toLowerCase());
+      }
+    }
+
+    // Method 1b: Positional — links in the far-left sidebar (< 280px) that look
+    // like profile links are the logged-in user's profile. IG sidebar doesn't
+    // always use <nav> elements.
+    const sidebarLinks = document.querySelectorAll('a[href]');
+    for (const a of sidebarLinks) {
+      try {
+        const rect = a.getBoundingClientRect();
+        if (rect.left < 280 && rect.width > 0) {
+          const href = a.getAttribute('href') || '';
+          const m = href.match(/^\/([A-Za-z0-9_.]+)\/?$/);
+          if (m && m[1].length >= 2 && !_igReservedPaths.has(m[1].toLowerCase())) {
+            selfUsernames.add(m[1].toLowerCase());
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // Method 2: Profile picture img alt ONLY in nav area
+    // (DM pages also show the lead's profile pic — don't pick those up)
+    const navAreas = document.querySelectorAll('nav, div[role="navigation"], div[role="banner"]');
+    for (const navArea of navAreas) {
+      const pics = navArea.querySelectorAll('img[alt*="profile picture"]');
+      for (const img of pics) {
+        const alt = (img.alt || '').toLowerCase();
+        const pm = alt.match(/^([a-z0-9_.]+)'s profile picture/);
+        if (pm && pm[1].length >= 2) {
+          selfUsernames.add(pm[1]);
+        }
+      }
+    }
+
+    // Method 3: Meta tag
     const metaUser = document.querySelector('meta[property="al:ios:url"]');
     if (metaUser) {
       const mu = (metaUser.content || '').match(/user\?username=([^&]+)/);
       if (mu) selfUsernames.add(mu[1].toLowerCase());
     }
+
+    console.log('[AG] Self usernames excluded:', [...selfUsernames].join(', '));
 
     // Blocked path prefixes (navigation, not profile links)
     const BLOCKED = ['/direct', '/accounts', '/explore', '/stories', '/reels',
@@ -321,23 +397,37 @@
       }
     }
 
-    // Priority 2: Scan all links but exclude self + navigation
+    // Helper: check if a link is in the Instagram sidebar (left nav)
+    // IG sidebar is ~280px wide on desktop. Links there are nav links, not content.
+    function _isInSidebar(el) {
+      try {
+        const rect = el.getBoundingClientRect();
+        // Sidebar links are on the far left and typically hidden or narrow
+        return rect.left < 280 && rect.width > 0;
+      } catch (e) { return false; }
+    }
+
+    // Priority 2: Scan all links but exclude self + navigation + sidebar
     const allLinks = document.querySelectorAll('a[href]');
     for (const a of allLinks) {
+      if (_isInSidebar(a)) continue;  // Skip sidebar (your own profile link lives here)
       const href = a.href || '';
       if (isBlockedHref(href)) continue;
       const username = extractUsername(href);
       if (username && !selfUsernames.has(username.toLowerCase()) && !igNavPages.includes(username.toLowerCase())) {
+        console.log('[AG] IG URL from page link (non-sidebar):', username);
         return 'https://www.instagram.com/' + username + '/';
       }
     }
 
-    // Priority 3: Relative links
+    // Priority 3: Relative links (also skip sidebar)
     for (const a of allLinks) {
+      if (_isInSidebar(a)) continue;
       const href = a.getAttribute('href') || '';
       if (!href.startsWith('/') || isBlockedHref(href)) continue;
       const username = extractUsername(href);
       if (username && !selfUsernames.has(username.toLowerCase()) && !igNavPages.includes(username.toLowerCase())) {
+        console.log('[AG] IG URL from relative link (non-sidebar):', username);
         return 'https://www.instagram.com/' + username + '/';
       }
     }
@@ -361,23 +451,22 @@
       return;
     }
     // Prefer the real name from the pipeline/outreach card over social page names
-    const bestName = pipelineDriverName || driverName;
-    const readable = usernameToReadable(bestName);
+    const bestName = smartNameClean(pipelineDriverName || driverName);
     const circuitInput = document.getElementById('ag-circuit-input');
     const circuit = circuitInput ? circuitInput.value.trim() : '';
     const platform = window.location.href.includes('instagram.com') ? 'IG' : 'FB';
 
     // Get the actual profile URL (not the DM URL)
     const profileUrl = getIgProfileUrl() || '';
-    console.log('[AG] saveOutreachToApp:', { driver: readable, profileUrl, template: templateName, createRider, circuit });
+    console.log('[AG] saveOutreachToApp:', { driver: bestName, profileUrl, template: templateName, createRider, circuit });
 
     // Get championship from chrome.storage (synced from Streamlit)
     chrome.storage.local.get('ag_championship', (data) => {
       const championship = data.ag_championship || '';
-      console.log('[AG] Sending saveOutreach to background:', { driver: readable, socialUrl: profileUrl, championship });
+      console.log('[AG] Sending saveOutreach to background:', { driver: bestName, socialUrl: profileUrl, championship });
       sendRuntimeMessage({
         type: 'saveOutreach',
-        driver: readable,
+        driver: bestName,
         socialUrl: profileUrl,
         platform: platform,
         message: messageText.substring(0, 1800),
@@ -388,10 +477,11 @@
       }, (response) => {
         if (response && response.success) {
           showSavedTick();
-          const urlSaved = profileUrl ? '✅ URL saved' : '⚠️ No URL detected';
+          const urlSaved = profileUrl ? '✅ URL: ' + profileUrl.replace('https://www.instagram.com/', '') : '⚠️ No URL detected';
           const matchInfo = response.matchType ? ` (${response.matchType})` : '';
-          showToast(`✅ Saved: ${readable}${matchInfo}\n${urlSaved}`, '#059669');
-          console.log('[AG] ✅ Outreach + URL saved for', readable, response);
+          const method = response.method ? ` [${response.method}]` : '';
+          showToast(`✅ Saved: ${bestName}${matchInfo}${method}\n${urlSaved}`, '#059669');
+          console.log('[AG] ✅ Outreach + URL saved for', bestName, 'url:', profileUrl, 'response:', JSON.stringify(response));
           // Update panel with save status
           const panel = document.getElementById('antigravity-driver-panel');
           if (panel) {
@@ -716,7 +806,8 @@
     const skipWords = ['Instagram', 'Direct', 'Messages', 'New message', 'New Message',
       'Active', 'Search', 'Chats', 'Primary', 'General', 'Requests',
       'Message...', 'Send', 'Audio call ended', 'Video',
-      '_caminocoaching', 'Your note', 'Ask friends anything',
+      '_caminocoaching', 'caminocoaching', 'thecaminocoach',
+      'camino_coaching', 'caminocoach', 'Your note', 'Ask friends anything',
       'Threads', 'Suggested for you', 'Following', 'Followers',
       'Posts', 'Reels', 'Tagged', 'Edit profile', 'Log in', 'Sign up',
       // Instagram navigation items (sidebar/bottom nav)
@@ -1138,7 +1229,7 @@
 
     sendRuntimeMessage({
       type: 'saveConversation',
-      driver: usernameToReadable(driverName),
+      driver: smartNameClean(pipelineDriverName || driverName),
       messages: formatted,
       platform: 'IG'
     });
@@ -1460,9 +1551,10 @@
       if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
       const msg = fixNameInMessage(currentAiTemplate);
       const pasted = await pasteIntoInput(msg);
+      // Always save to pipeline — whether pasted or copied
+      saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
       if (pasted) {
         showToast('🤖 AI message pasted!');
-        saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
       } else {
         try {
           await navigator.clipboard.writeText(msg);
@@ -1807,16 +1899,24 @@
         lastUrl = location.href;
         // Reset auto-save tracking on navigation
         autoSavedUrl = null;
-        // Clear stale pipeline name BEFORE checking hash — prevents wrong
-        // rider showing when navigating between profiles without #ag_driver=
-        pipelineDriverName = null;
+        dbLookupDone = false;
         // Check for new #ag_driver= hash on navigation (sets pipelineDriverName if present)
         checkHashForRiderName();
-        // Clear pipeline name when entering DMs (use real chat name)
         if (isDMPage()) {
+          // Entering DMs — KEEP pipelineDriverName! The user likely just came
+          // from the pipeline and is about to message this person. The scraped
+          // IG username (e.g. "cameronhill") is unreliable for Airtable lookups
+          // but the pipeline name ("Cameron Hill") is accurate.
+          console.log('[AG] Entered DM — keeping pipelineDriverName:', pipelineDriverName);
+        } else if (!pipelineDriverName) {
+          // Navigating to a new profile without hash — clear stale pipeline name
+          // to prevent wrong name showing when browsing profiles manually
           pipelineDriverName = null;
-        } else {
+          _nameSetByApp = false;
           // Auto-save URL on profile/search page navigation
+          setTimeout(() => autoSaveSocialUrl(), 2000);
+        } else {
+          // Has pipelineDriverName from hash — Auto-save URL
           setTimeout(() => autoSaveSocialUrl(), 2000);
         }
         setTimeout(updateButton, 800);

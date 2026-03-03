@@ -328,11 +328,13 @@ def load_settings_store():
 
 @st.dialog("Driver Details", width="large")
 def view_unified_dialog(r, dashboard):
+    # Dialog is actively rendering — reset stale counter
+    st.session_state['_dash_stale_count'] = 0
     render_unified_card_content(r, dashboard, key_suffix="_dialog")
     if st.button("✖ Close", key="close_unified_dialog", use_container_width=True):
         if '_open_driver_card' in st.session_state:
             del st.session_state['_open_driver_card']
-        st.rerun()
+        st.rerun(scope="app")
 
 # ==============================================================================
 # DEEP LINKING: Find driver by name, email, or social URL
@@ -399,6 +401,8 @@ def _make_clickable_url(val, platform):
 
 @st.dialog("Calendar – Driver Details", width="large")
 def view_calendar_dialog(r, dashboard):
+    # Dialog is actively rendering — reset stale counter
+    st.session_state['_cal_stale_count'] = 0
     # Quick header with social links for fast workflow
     hdr_cols = st.columns([3, 1, 1, 1])
     with hdr_cols[0]:
@@ -420,16 +424,18 @@ def view_calendar_dialog(r, dashboard):
         if st.button("✕ Close", key="cal_close_top_btn", type="primary"):
             if 'calendar_selected_driver' in st.session_state:
                 del st.session_state['calendar_selected_driver']
+            st.session_state.pop('_cal_stale_count', None)
             st.session_state['_cal_dismissed'] = True
-            st.rerun()
+            st.rerun(scope="app")
 
     render_unified_card_content(r, dashboard, key_suffix="_cal")
 
     if st.button("← Back to Calendar", key="cal_close_main_btn", use_container_width=True):
         if 'calendar_selected_driver' in st.session_state:
              del st.session_state['calendar_selected_driver']
+        st.session_state.pop('_cal_stale_count', None)
         st.session_state['_cal_dismissed'] = True
-        st.rerun()
+        st.rerun(scope="app")
 # OLD CARD CODE REMOVED — all card rendering now uses render_unified_card_content
 # from ui_components.py (imported at top). See view_unified_dialog (line 110).
 
@@ -1113,46 +1119,84 @@ def render_race_outreach(dashboard):
                 "• **Gemini** (free 15 RPM): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)"
             )
         else:
-            st.caption("Enter a championship name → AI searches the web → extracts drivers, calendar & results.")
-            _research_col1, _research_col2 = st.columns([3, 1])
-            with _research_col1:
-                _research_query = st.text_input(
-                    "Championship to research",
-                    placeholder="e.g. GR86 Championship NZ 2025-2026",
-                    key="research_champ_query",
-                    label_visibility="collapsed",
-                )
-            with _research_col2:
-                _do_research = st.button("🔍 Research", type="primary", use_container_width=True)
+            _rtab_url, _rtab_search = st.tabs(["🔗 From URL", "🔍 Search by Name"])
 
-            if _do_research and _research_query:
-                from championship_researcher import ChampionshipResearcher
+            # ── Tab 1: Import from URL ──
+            with _rtab_url:
+                st.caption("Paste a championship website URL → AI scrapes calendar, drivers & results.")
+                _url_col1, _url_col2 = st.columns([3, 1])
+                with _url_col1:
+                    _research_url = st.text_input(
+                        "Championship URL",
+                        placeholder="e.g. https://www.toyota.co.nz/toyota-racing/castrol-toyota-fr-oceania/",
+                        key="research_champ_url",
+                        label_visibility="collapsed",
+                    )
+                with _url_col2:
+                    _do_url_research = st.button("🔗 Import", type="primary", use_container_width=True)
 
-                _researcher = ChampionshipResearcher(
-                    tavily_api_key=st.secrets["research"]["tavily_api_key"],
-                    gemini_api_key=st.secrets["research"]["gemini_api_key"],
-                )
+                if _do_url_research and _research_url:
+                    _research_url = _research_url.strip()
+                    if not _research_url.startswith("http"):
+                        _research_url = "https://" + _research_url
+                    from championship_researcher import ChampionshipResearcher
+                    _researcher = ChampionshipResearcher(
+                        tavily_api_key=st.secrets["research"]["tavily_api_key"],
+                        gemini_api_key=st.secrets["research"]["gemini_api_key"],
+                    )
+                    _progress_bar = st.progress(0)
+                    _status_text = st.empty()
+                    def _url_research_progress(step, msg):
+                        _progress_bar.progress(min(step / 6, 1.0))
+                        _status_text.caption(f"Step {step}/6: {msg}")
+                    with st.spinner("Scraping championship website..."):
+                        _research_data = _researcher.research_from_url(
+                            _research_url, progress_callback=_url_research_progress
+                        )
+                    _progress_bar.progress(1.0)
+                    _status_text.empty()
+                    if "error" in _research_data:
+                        st.error(f"Import failed: {_research_data['error']}")
+                    else:
+                        st.session_state['_research_result'] = _research_data
+                        st.rerun()
 
-                _progress_bar = st.progress(0)
-                _status_text = st.empty()
+            # ── Tab 2: Search by Name (existing) ──
+            with _rtab_search:
+                st.caption("Enter a championship name → AI searches the web → extracts drivers, calendar & results.")
+                _research_col1, _research_col2 = st.columns([3, 1])
+                with _research_col1:
+                    _research_query = st.text_input(
+                        "Championship to research",
+                        placeholder="e.g. GR86 Championship NZ 2025-2026",
+                        key="research_champ_query",
+                        label_visibility="collapsed",
+                    )
+                with _research_col2:
+                    _do_research = st.button("🔍 Research", type="primary", use_container_width=True)
 
-                def _research_progress(step, msg):
-                    _progress_bar.progress(min(step / 6, 1.0))
-                    _status_text.caption(f"Step {step}/6: {msg}")
+                if _do_research and _research_query:
+                    from championship_researcher import ChampionshipResearcher
+                    _researcher = ChampionshipResearcher(
+                        tavily_api_key=st.secrets["research"]["tavily_api_key"],
+                        gemini_api_key=st.secrets["research"]["gemini_api_key"],
+                    )
+                    _progress_bar = st.progress(0)
+                    _status_text = st.empty()
+                    def _research_progress(step, msg):
+                        _progress_bar.progress(min(step / 6, 1.0))
+                        _status_text.caption(f"Step {step}/6: {msg}")
+                    with st.spinner("Researching..."):
+                        _research_data = _researcher.research(_research_query, progress_callback=_research_progress)
+                    _progress_bar.progress(1.0)
+                    _status_text.empty()
+                    if "error" in _research_data:
+                        st.error(f"Research failed: {_research_data['error']}")
+                    else:
+                        st.session_state['_research_result'] = _research_data
+                        st.rerun()
 
-                with st.spinner("Researching..."):
-                    _research_data = _researcher.research(_research_query, progress_callback=_research_progress)
-
-                _progress_bar.progress(1.0)
-                _status_text.empty()
-
-                if "error" in _research_data:
-                    st.error(f"Research failed: {_research_data['error']}")
-                else:
-                    st.session_state['_research_result'] = _research_data
-                    st.rerun()
-
-            # ── Display Research Results ──
+            # ── Display Research Results (shared by both tabs) ──
             if '_research_result' in st.session_state:
                 _rdata = st.session_state['_research_result']
                 _champ_name = _rdata.get('championship_name', _rdata.get('query', ''))
@@ -1164,6 +1208,74 @@ def render_race_outreach(dashboard):
                 if _sources:
                     _src_links = " · ".join([f"[{s['title'][:30]}]({s['url']})" for s in _sources[:5]])
                     st.caption(f"📚 Sources: {_src_links}")
+
+                # ── 🚀 ONE-CLICK IMPORT: Calendar + Drivers + Auto-select ──
+                _has_cal = bool(_rdata.get('calendar'))
+                _has_drivers = bool(_rdata.get('drivers'))
+                if _has_cal or _has_drivers:
+                    _n_rounds = len([e for e in _rdata.get('calendar', []) if e.get('start_date') and e.get('end_date')])
+                    _n_drivers = len(_rdata.get('drivers', []))
+                    _import_label = "🚀 Import All & Start Outreach"
+                    _import_parts = []
+                    if _n_rounds: _import_parts.append(f"{_n_rounds} rounds")
+                    if _n_drivers: _import_parts.append(f"{_n_drivers} drivers")
+                    if _import_parts:
+                        _import_label += f" ({', '.join(_import_parts)})"
+
+                    if st.button(_import_label, key="research_import_all", type="primary", use_container_width=True):
+                        _msgs = []
+                        # 1. Add calendar
+                        if _has_cal:
+                            from championship_researcher import research_to_calendar_dict
+                            _new_cal = research_to_calendar_dict(_rdata, color="#607D8B")
+                            if _new_cal["rounds"]:
+                                RACE_CALENDARS[_champ_name] = _new_cal
+                                _sa = st.session_state.get('session_added_championships', [])
+                                if _champ_name not in _sa:
+                                    _sa.append(_champ_name)
+                                    st.session_state.session_added_championships = _sa
+                                _persist_championships()
+                                _msgs.append(f"📅 {len(_new_cal['rounds'])} rounds added")
+                        # 2. Import drivers
+                        if _has_drivers:
+                            _imported = 0
+                            for d in _rdata.get('drivers', []):
+                                _first = d.get('first_name', '').strip()
+                                _last = d.get('last_name', '').strip()
+                                if _first and _last:
+                                    _slug = f"{_first}_{_last}".lower().replace(" ", "_")
+                                    _email = f"no_email_{_slug}"
+                                    _notes_parts = []
+                                    if d.get('number'): _notes_parts.append(f"#{d['number']}")
+                                    if d.get('nationality'): _notes_parts.append(d['nationality'])
+                                    if d.get('team'): _notes_parts.append(d['team'])
+                                    _notes = " · ".join(_notes_parts)
+                                    if dashboard.add_new_driver(
+                                        _email, _first, _last, "", "",
+                                        championship=_champ_name, notes=_notes
+                                    ):
+                                        dashboard.update_driver_stage(_email, FunnelStage.CONTACT)
+                                        _imported += 1
+                            _msgs.append(f"🏎️ {_imported} drivers imported")
+                        # 3. Auto-select championship
+                        st.session_state.global_championship = _champ_name
+                        # 4. Find last finished event → auto-fill circuit
+                        _last_fin = _get_last_finished_round(_champ_name, _today)
+                        if _last_fin:
+                            _last_rd, _days = _last_fin
+                            _circuit_name = _strip_flags(_last_rd['name'])
+                            _persist_circuit(_circuit_name)
+                            _msgs.append(f"🏁 Circuit: **{_circuit_name}** ({_last_rd['round']}, {_days}d ago)")
+                        elif _has_cal and RACE_CALENDARS.get(_champ_name, {}).get('rounds'):
+                            _first_rd = RACE_CALENDARS[_champ_name]['rounds'][0]
+                            _circuit_name = _strip_flags(_first_rd['name'])
+                            _persist_circuit(_circuit_name)
+                            _msgs.append(f"🏁 Circuit: **{_circuit_name}** (next event)")
+                        st.success("✅ **All imported!** " + " · ".join(_msgs))
+                        st.toast(f"🚀 {_champ_name} — ready for outreach!")
+                        st.rerun()
+
+                    st.divider()
 
                 # ── Calendar ──
                 _cal_events = _rdata.get('calendar', [])
@@ -1180,14 +1292,13 @@ def render_race_outreach(dashboard):
                     import pandas as _pd_cal
                     st.dataframe(_pd_cal.DataFrame(_cal_rows), use_container_width=True, hide_index=True)
 
-                    # Add to Calendar button
+                    # Add to Calendar button (individual)
                     _cal_color = st.color_picker("Calendar colour", value="#607D8B", key="research_cal_color")
-                    if st.button("📅 Add Calendar to App", key="research_add_cal"):
+                    if st.button("📅 Add Calendar Only", key="research_add_cal"):
                         from championship_researcher import research_to_calendar_dict
                         _new_cal = research_to_calendar_dict(_rdata, color=_cal_color)
                         if _new_cal["rounds"]:
                             RACE_CALENDARS[_champ_name] = _new_cal
-                            # Also persist the championship name
                             _sa = st.session_state.get('session_added_championships', [])
                             if _champ_name not in _sa:
                                 _sa.append(_champ_name)
@@ -1214,8 +1325,8 @@ def render_race_outreach(dashboard):
                     import pandas as _pd_drv
                     st.dataframe(_pd_drv.DataFrame(_drv_rows), use_container_width=True, hide_index=True)
 
-                    # Bulk import button
-                    if st.button(f"⚡ Import {len(_drivers)} Drivers to Pipeline", key="research_import_drivers", type="primary"):
+                    # Bulk import button (individual)
+                    if st.button(f"⚡ Import {len(_drivers)} Drivers Only", key="research_import_drivers"):
                         _imported = 0
                         _prog = st.progress(0)
                         for _idx, d in enumerate(_drivers):
@@ -1225,7 +1336,7 @@ def render_race_outreach(dashboard):
                                 _slug = f"{_first}_{_last}".lower().replace(" ", "_")
                                 _email = f"no_email_{_slug}"
                                 _notes_parts = []
-                                if d.get('number'): _notes_parts.append(f"#{d['number']}")
+                                if d.get('number'): _notes_parts.append(f"#{d['number']}") 
                                 if d.get('nationality'): _notes_parts.append(d['nationality'])
                                 if d.get('team'): _notes_parts.append(d['team'])
                                 _notes = " · ".join(_notes_parts)
@@ -4444,6 +4555,8 @@ elif '_open_driver_card' in st.session_state:
     _card_driver_id = st.session_state['_open_driver_card']
     _card_driver = dashboard._find_driver(_card_driver_id)
     if _card_driver:
+        # Reset stale counter — dialog is actively open, not stale
+        st.session_state['_dash_stale_count'] = 0
         view_unified_dialog(_card_driver, dashboard)
     # Clean up AFTER dialog renders (dialog stays open across reruns)
     # Only clear when the key changes (new driver) or user navigates away
@@ -4917,11 +5030,21 @@ if "driver" in st.query_params and not st.session_state.get('_driver_link_handle
             del st.query_params[_p]
 
 # Render View
-# Dashboard + Calendar: skip heavy render when a dialog is open (cards are overlays)
-# Outreach + Admin: always render, clear stale dialog keys (they have their own cards)
+# Dialogs are overlays that render on top of the page content — we ALWAYS
+# render the page underneath so closing a dialog never leaves a blank screen.
 if nav == "📊 Funnel Dashboard":
-    if '_open_driver_card' not in st.session_state:
-        render_dashboard(dashboard, daily_metrics, drivers)
+    # Detect stale _open_driver_card (user dismissed dialog natively via X or outside click)
+    if '_open_driver_card' in st.session_state:
+        _dash_stale = st.session_state.get('_dash_stale_count', 0) + 1
+        st.session_state['_dash_stale_count'] = _dash_stale
+        if _dash_stale >= 3:
+            # Dialog was closed natively — clean up
+            del st.session_state['_open_driver_card']
+            st.session_state.pop('_dash_stale_count', None)
+            st.rerun()
+    else:
+        st.session_state.pop('_dash_stale_count', None)
+    render_dashboard(dashboard, daily_metrics, drivers)
 elif nav == "🏁 Race Outreach":
     st.session_state.pop('_open_driver_card', None)
     st.session_state.pop('calendar_selected_driver', None)
@@ -4936,5 +5059,18 @@ elif nav == "⚙️ Admin":
     render_admin(dashboard, drivers)
 elif nav == "📅 Calendar":
     st.session_state.pop('_open_driver_card', None)
-    if 'calendar_selected_driver' not in st.session_state:
-        render_calendar_view(dashboard)
+    if 'calendar_selected_driver' in st.session_state:
+        # Dialog SHOULD be open (handled by early dialog check above).
+        # But if the user dismissed it natively (clicked outside / X button),
+        # the key lingers. Detect via rerun counter and clean up.
+        _stale = st.session_state.get('_cal_stale_count', 0) + 1
+        st.session_state['_cal_stale_count'] = _stale
+        if _stale >= 2:
+            del st.session_state['calendar_selected_driver']
+            st.session_state.pop('_cal_stale_count', None)
+            st.session_state['_cal_dismissed'] = True
+            st.rerun(scope="app")
+    else:
+        st.session_state.pop('_cal_stale_count', None)
+    # Always render calendar (dialog floats above it)
+    render_calendar_view(dashboard)

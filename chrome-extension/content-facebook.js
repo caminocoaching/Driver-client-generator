@@ -1109,6 +1109,76 @@
     return null;
   }
 
+  // ── Auto-add friend on Facebook profile pages ──────────────────────────
+  // Finds and clicks the "Add friend" button. Silently skips if not on a
+  // profile page, already friends, or button can't be found.
+  function clickAddFriendButton() {
+    if (!isProfilePage()) {
+      console.log('[AG] Not a profile page — skipping Add Friend');
+      return false;
+    }
+
+    // Strategy 1: aria-label match (most reliable)
+    const ariaBtn = document.querySelector(
+      'div[aria-label="Add friend"], div[aria-label="Add Friend"],' +
+      'a[aria-label="Add friend"], a[aria-label="Add Friend"],' +
+      'button[aria-label="Add friend"], button[aria-label="Add Friend"]'
+    );
+    if (ariaBtn) {
+      ariaBtn.click();
+      console.log('[AG] ✅ Add Friend clicked (aria-label)');
+      showToast('👋 Friend request sent!', '#3b82f6');
+      return true;
+    }
+
+    // Strategy 2: Text content match — profile action buttons
+    const candidates = document.querySelectorAll(
+      'div[role="button"], a[role="button"], button'
+    );
+    for (const el of candidates) {
+      const text = el.textContent.trim();
+      if (/^Add [Ff]riend$/i.test(text)) {
+        const rect = el.getBoundingClientRect();
+        // Profile action buttons are in the upper-middle area of the page
+        if (rect.top > 100 && rect.top < 800 && rect.width > 20) {
+          el.click();
+          console.log('[AG] ✅ Add Friend clicked (text match)');
+          showToast('👋 Friend request sent!', '#3b82f6');
+          return true;
+        }
+      }
+    }
+
+    // Strategy 3: Look for the person-plus SVG icon (Facebook's add-friend icon)
+    // The button often contains an SVG with a person+plus icon
+    const allButtons = document.querySelectorAll('div[role="button"], a[role="button"]');
+    for (const el of allButtons) {
+      const svg = el.querySelector('svg');
+      if (!svg) continue;
+      // Check for the typical add-friend icon: contains both a person shape and a plus
+      const paths = svg.querySelectorAll('path');
+      const svgText = svg.innerHTML || '';
+      // Facebook's add-friend icon has a person silhouette + plus sign
+      if (paths.length >= 2 && (svgText.includes('M18') || svgText.includes('M15'))) {
+        const parent = el.closest('[role="button"]') || el;
+        const rect = parent.getBoundingClientRect();
+        if (rect.top > 100 && rect.top < 800) {
+          // Verify it's not the "Message" or "Follow" button by checking nearby text
+          const nearbyText = parent.textContent.trim().toLowerCase();
+          if (nearbyText.includes('add') || nearbyText === '' || nearbyText.includes('friend')) {
+            parent.click();
+            console.log('[AG] ✅ Add Friend clicked (SVG icon match)');
+            showToast('👋 Friend request sent!', '#3b82f6');
+            return true;
+          }
+        }
+      }
+    }
+
+    console.log('[AG] Add Friend button not found — may already be friends');
+    return false;
+  }
+
   async function openMessengerPopup() {
     // On a profile page, click the "Message" button to open a chat popup
     if (!isProfilePage()) return false;
@@ -1646,9 +1716,10 @@
       if (!currentAiTemplate) { showToast('No AI message — open app first'); return; }
       const msg = fixNameInMessage(currentAiTemplate);
       const pasted = await pasteIntoMessenger(msg);
+      // Always save to pipeline — whether pasted or copied
+      saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
       if (pasted) {
         showToast('🤖 AI message pasted!');
-        saveOutreachToApp(currentName, msg, 'AI Race Outreach', true);
       } else {
         try {
           await navigator.clipboard.writeText(msg);
@@ -1657,6 +1728,8 @@
           showToast('Could not paste — copy manually');
         }
       }
+      // Auto-send friend request after outreach (profile pages only)
+      setTimeout(() => clickAddFriendButton(), 1000);
     });
 
     for (const [groupName, templateKeys] of Object.entries(TEMPLATE_GROUPS)) {
@@ -1705,6 +1778,8 @@
               await navigator.clipboard.writeText(msg);
               showToast('📤 Copied & saved — URL + message recorded');
             }
+            // Auto-send friend request after cold outreach (profile pages only)
+            setTimeout(() => clickAddFriendButton(), 1000);
             // Panel stays open so user can send from another platform
           } else {
             // NON-OUTREACH: set stage immediately + close panel
