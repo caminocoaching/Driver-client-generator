@@ -97,9 +97,14 @@
     // --- SEND LINKS ---
     "Send Link (Yes)": `Superb, {name} Here is the link to The Post-Race Weekend Performance Score\nhttps://improve-rider.scoreapp.com\n\nThis short review zeroes in on where you're losing lap time, where any gaps are showing up and how to fill them 🚀\n\nAt the bottom of the results page is some free training on how to fill those gaps 👍🏻`,
 
+    "Send Season Review": `Great to hear {name}! Here's the link to the End of Season Review\nhttps://driverseason.scoreapp.com\n\nIt takes about 5 minutes and breaks down your whole season — what went well, where the gaps are, and what to focus on heading into next season 🏁\n\nAt the bottom of the results page there's some free training on how to close those gaps 👍🏻`,
+
     "Send Blueprint Link": `OK {name} here you go, instant access to the Podium Contenders Blueprint\nhttps://academy.caminocoaching.co.uk/podium-contenders-blueprint/order/\n\n📚 What you'll learn:\n✓ Day 1: The 7 biggest mistakes costing you lap times\n✓ Day 2: The 5-pillar system for accessing flow state on command\n✓ Day 3: Your race weekend mental preparation protocol\n\nComplete all 3 days, and you'll unlock a free strategy call where we'll create your personalised performance roadmap for 2026.\nSee you inside! 🏁\nCraig`,
 
     "Offer Free Training": `Hey {name}, Great to see you will be lining up on the grid this season\nWe have some pre-season free training that many riders are using to ensure they are on point from the first round this season.\nWant me to send it over?`,
+
+    // --- END OF SEASON REPLIES ---
+    "End of Season (Reply)": `Thanks for the reply, {name}.\n\nSounds like you had a solid season!\n\nNot sure if you know — I'm a Flow Performance Coach. A bit different from the usual driver-coach.\n\nI work with drivers in many championships on the mental side of racing — helping them access the Flow State, where performance becomes automatic, consistent, and confident under pressure.\n\nI've built a free end-of-season review that breaks down where your biggest gains are hiding heading into next season.\n\nWant me to send it over?`,
 
     // --- REVIEW DONE → NEXT STEP ---
     "Follow-Up (Review Done → Blueprint)": `Hey {name},\nSaw you completed the Race Weekend Review — nice one. Most riders never even get that far. They just keep doing the same thing and wondering why nothing changes.\nYour results actually flagged a couple of areas that the Free Training covers in detail, specifically how the top riders manage those exact patterns you scored on.\n\nWant me to send you the link?\nCraig`,
@@ -133,9 +138,9 @@
 
   const TEMPLATE_GROUPS = {
     "🏁 COLD OUTREACH": ["Cold Outreach", "Offer Free Training"],
-    "🏆 END OF SEASON": ["End of Season"],
+    "🏆 END OF SEASON": ["End of Season", "End of Season (Reply)", "Send Season Review"],
     "REPLIES": ["Great Work (Reply)", "Productive (Reply)", "Tough Weekend (Reply)"],
-    "SEND LINKS": ["Send Link (Yes)", "Send Blueprint Link"],
+    "SEND LINKS": ["Send Link (Yes)", "Send Season Review", "Send Blueprint Link"],
     "FOLLOW-UPS": ["Follow-Up (Review Done → Blueprint)", "Follow-Up (Link Sent Check)", "Follow-Up (Review 2 Days) V1", "Follow-Up (Review 2 Days) V2"],
     "STALLED NUDGES": ["Stalled: Review Started", "Stalled: Signed In", "Stalled: Day 1 Only", "Stalled: Day 2 Only", "Stalled: Day 3 Only"],
     "RESCUE DMs": ["Rescue: Day 1 Nudge", "Rescue: Day 2 Nudge", "Rescue: Book Strategy Call"]
@@ -145,6 +150,8 @@
   const TEMPLATE_STAGE_MAP = {
     "Cold Outreach": "Messaged",
     "End of Season": "Messaged",
+    "End of Season (Reply)": "Replied",
+    "Send Season Review": "Link Sent",
     "Great Work (Reply)": "Replied",
     "Productive (Reply)": "Replied",
     "Tough Weekend (Reply)": "Replied",
