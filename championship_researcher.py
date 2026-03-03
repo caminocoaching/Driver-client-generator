@@ -163,9 +163,12 @@ def _gemini_extract(api_key: str, championship_query: str, content: str) -> Dict
         # Fallback: use REST API directly
         return _gemini_extract_rest(api_key, championship_query, content)
 
+    # Escape curly braces in content — scraped HTML/CSS/JS contains {} which
+    # Python's .format() would try to interpret as placeholders
+    _safe_content = content[:80_000].replace('{', '{{').replace('}', '}}')
     prompt = _EXTRACTION_PROMPT.format(
         championship_query=championship_query,
-        content=content[:80_000],  # Gemini Flash context window is huge
+        content=_safe_content,
     )
 
     try:
@@ -190,9 +193,10 @@ def _gemini_extract(api_key: str, championship_query: str, content: str) -> Dict
 
 def _gemini_extract_rest(api_key: str, championship_query: str, content: str) -> Dict:
     """Fallback: call Gemini via REST API without the SDK."""
+    _safe_content = content[:80_000].replace('{', '{{').replace('}', '}}')
     prompt = _EXTRACTION_PROMPT.format(
         championship_query=championship_query,
-        content=content[:80_000],
+        content=_safe_content,
     )
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     payload = {
