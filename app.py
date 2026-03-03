@@ -2831,12 +2831,18 @@ def render_race_outreach(dashboard):
                 if _driver_for_ai:
                     _ai_msg, _ai_type, _ai_explain = generate_ai_message(
                         _driver_for_ai, conversation_thread=_thread,
-                        performance_data=_perf_data, event_name=event_name
+                        performance_data=_perf_data, event_name=event_name,
+                        outreach_mode="end_of_season" if _is_end_of_season else "race_weekend",
+                        championship=selected_champ or ""
                     )
                 else:
                     _, _pd = _build_perf_line(_perf_data.get('saved', {}), _perf_data.get('live', []))
-                    _ai_msg = _perf_opener(_pd, f_name, event_name)
-                    _ai_type = "Cold outreach"
+                    _ai_msg = _perf_opener(
+                        _pd, f_name, event_name,
+                        outreach_mode="end_of_season" if _is_end_of_season else "race_weekend",
+                        championship=selected_champ or ""
+                    )
+                    _ai_type = "End of season" if _is_end_of_season else "Cold outreach"
                     _ai_explain = "New driver"
 
                 # Store AI message for Chrome extension sync

@@ -321,7 +321,7 @@ def _build_perf_line(perf, live_data=None):
     return None, detail
 
 
-def _perf_opener(detail, first_name, event_name=""):
+def _perf_opener(detail, first_name, event_name="", outreach_mode="race_weekend", championship=""):
     """Generate a performance-driven opening line for outreach messages.
 
     Args:
@@ -329,9 +329,33 @@ def _perf_opener(detail, first_name, event_name=""):
                 season_narrative, rounds_completed, at_season_best, round_by_round
         first_name: driver's first name
         event_name: circuit/event name (optional)
+        outreach_mode: 'race_weekend' or 'end_of_season'
+        championship: championship name (used for end_of_season mode)
 
     Returns: personalised opening string, or generic opener if no data
     """
+    # END OF SEASON MODE — reference the championship and season, not a circuit
+    if outreach_mode == 'end_of_season' and championship:
+        if not detail:
+            return f"Hey {first_name}, I see you were competing in the {championship} this season. How did it go for you?"
+
+        race_pos = detail.get('race_pos')
+        season_best = detail.get('season_best')
+        rounds_completed = detail.get('rounds_completed', 0)
+        extended_trend = detail.get('extended_trend', '')
+
+        if race_pos:
+            if race_pos <= 3:
+                return f"Hey {first_name}, I see you were competing in the {championship} this season - P{race_pos} in the championship is a mega result! How are you feeling about it?"
+            elif extended_trend in ('consistently_improving', 'generally_improving'):
+                return f"Hey {first_name}, I see you were racing in the {championship} this season and the form got stronger as it went on. How are you feeling about the season overall?"
+            elif season_best and season_best <= 5:
+                return f"Hey {first_name}, saw you competed in the {championship} this season, with a best of P{season_best}. How did you find the season overall?"
+            else:
+                return f"Hey {first_name}, I see you competed in the {championship} this season. How did it go for you?"
+        return f"Hey {first_name}, I see you were competing in the {championship} this season. How did it go for you?"
+
+    # RACE WEEKEND MODE (original logic)
     if not detail:
         if event_name:
             return f"Hey {first_name}, I see you were out at {event_name} at the weekend - how was it for you?"
@@ -384,7 +408,7 @@ def _perf_opener(detail, first_name, event_name=""):
     return f"Hey {first_name},"
 
 
-def generate_ai_message(driver, conversation_thread="", performance_data=None, event_name=""):
+def generate_ai_message(driver, conversation_thread="", performance_data=None, event_name="", outreach_mode="race_weekend", championship=""):
     """Generate a contextually appropriate follow-up message based on the
     driver's funnel stage, conversation thread, performance data, and Blueprint knowledge.
 
@@ -394,6 +418,8 @@ def generate_ai_message(driver, conversation_thread="", performance_data=None, e
         performance_data: dict with 'saved' (get_results_summary result) and/or
                          'live' (list of Speedhive session dicts for this driver)
         event_name: circuit/event name for context
+        outreach_mode: 'race_weekend' or 'end_of_season'
+        championship: championship name (used for end_of_season mode)
 
     Returns (message_text, message_type, explanation)
     """
@@ -405,7 +431,7 @@ def generate_ai_message(driver, conversation_thread="", performance_data=None, e
     # but full_name has a proper name with space, prefer that
     if len(first_name) > 8 and ' ' not in first_name and driver.full_name and ' ' in driver.full_name:
         first_name = driver.full_name.split()[0].title()
-    track = driver.championship or ""
+    track = driver.championship or championship or ""
     last_msg = _extract_last_their_message(conversation_thread)
     sentiment = _classify_sentiment(last_msg)
 
@@ -416,8 +442,9 @@ def generate_ai_message(driver, conversation_thread="", performance_data=None, e
 
     # ── CONTACT: First outreach — performance-driven opener ──
     if stage in [FunnelStage.CONTACT, None]:
-        opener = _perf_opener(perf_detail, first_name, event_name)
-        return opener, "Cold outreach (performance)", f"First contact. Perf: {perf_line or 'none'}"
+        opener = _perf_opener(perf_detail, first_name, event_name, outreach_mode=outreach_mode, championship=track)
+        _mode_label = "End of season" if outreach_mode == 'end_of_season' else "Cold outreach (performance)"
+        return opener, _mode_label, f"First contact. Perf: {perf_line or 'none'}"
 
     # ── Stage 1b: DM Sent, no reply ──
     if stage == FunnelStage.MESSAGED:

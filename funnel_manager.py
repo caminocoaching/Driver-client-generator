@@ -90,6 +90,7 @@ class FunnelStage(Enum):
     DAY1_COMPLETE = "Day 1 Completed"
     DAY2_COMPLETE = "Day 2 Completed"
     STRATEGY_CALL_BOOKED = "Strategy Call Booked"
+    STRATEGY_CALL_NO_SHOW = "Strategy Call No Show"
     CLIENT = "Client"
     NOT_A_FIT = "Not a good fit"
     DOES_NOT_REPLY = "Does Not Reply"
