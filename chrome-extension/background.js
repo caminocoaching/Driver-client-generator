@@ -80,7 +80,7 @@ async function processRetryQueue() {
 
     // Expire items older than 7 days (data is too stale to be useful)
     if (now - item.ts > QUEUE_EXPIRY_MS) {
-      console.warn('[AG] ⏰ Expired queue item for ' + item.rider + ' (queued ' + Math.round((now - item.ts) / 3600000) + 'h ago)');
+      console.warn('[AG] ⏰ Expired queue item for ' + item.driver + ' (queued ' + Math.round((now - item.ts) / 3600000) + 'h ago)');
       continue; // drop from queue
     }
 
@@ -94,15 +94,15 @@ async function processRetryQueue() {
 
     // Attempt the save
     try {
-      await saveDriverToAirtable(item.rider, item.fields);
-      console.log('[AG] ✅ Retry succeeded for ' + item.rider + ' (attempt ' + (item.attempt + 1) + ')');
+      await saveDriverToAirtable(item.driver, item.fields);
+      console.log('[AG] ✅ Retry succeeded for ' + item.driver + ' (attempt ' + (item.attempt + 1) + ')');
       anySuccess = true;
       // Don't add to remaining — it's done!
     } catch (err) {
       item.attempt = (item.attempt || 0) + 1;
       item.lastTry = now;
       remaining.push(item);
-      console.warn('[AG] ⚠️ Retry failed for ' + item.rider + ': ' + err.message + ' (attempt ' + item.attempt + ', next in ' + BACKOFF_SCHEDULE[Math.min(item.attempt, BACKOFF_SCHEDULE.length - 1)] + 's)');
+      console.warn('[AG] ⚠️ Retry failed for ' + item.driver + ': ' + err.message + ' (attempt ' + item.attempt + ', next in ' + BACKOFF_SCHEDULE[Math.min(item.attempt, BACKOFF_SCHEDULE.length - 1)] + 's)');
     }
   }
 
