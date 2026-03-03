@@ -150,7 +150,7 @@
     "🏁 COLD OUTREACH": ["Cold Outreach", "Offer Free Training"],
     "🏆 END OF SEASON": ["End of Season", "End of Season (Reply)", "Send Season Review"],
     "REPLIES": ["Great Work (Reply)", "Productive (Reply)", "Tough Weekend (Reply)"],
-    "SEND LINKS": ["Send Link (Yes)", "Send Blueprint Link"],
+    "SEND LINKS": ["Send Season Review", "Send Blueprint Link"],
     "FOLLOW-UPS": ["Follow-Up (Review Done → Blueprint)", "Follow-Up (Link Sent Check)", "Follow-Up (Review 2 Days) V1", "Follow-Up (Review 2 Days) V2"],
     "STALLED NUDGES": ["Stalled: Review Started", "Stalled: Signed In", "Stalled: Day 1 Only", "Stalled: Day 2 Only", "Stalled: Day 3 Only"],
     "RESCUE DMs": ["Rescue: Day 1 Nudge", "Rescue: Day 2 Nudge", "Rescue: Book Strategy Call"]
