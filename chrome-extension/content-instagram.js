@@ -200,12 +200,11 @@
 
   // End of season outreach variations — uses {championship} placeholder
   const END_OF_SEASON_VARIATIONS = [
-    `Hey {name}\n\nI see you were competing in the {championship} this season\n\nHow did it go for you?`,
-    `Hi {name}\n\nSaw you were racing in the {championship} this season\n\nHow was it?`,
-    `Hey {name}\n\nI noticed you competed in the {championship} this season\n\nHow did you get on?`,
-    `Hi {name}\n\nLooks like you had a season in the {championship}\n\nHow did it go?`,
-    `Hey {name}\n\nI see you were part of the {championship} this season\n\nHow was it for you?`,
-    `Hiya {name}\n\nI noticed you raced in the {championship} this season\n\nHow did you find it?`,
+    `Hey {name}\n\nI see you competed in the {championship} this season\n\nHow was your season?`,
+    `Hey {name}\n\nI see you competed in the {championship} this season\n\nHow did it go?`,
+    `Hey {name}\n\nI see you competed in the {championship} this season\n\nHow was it for you?`,
+    `Hey {name}\n\nI see you competed in the {championship} this season\n\nHow are you feeling about your performance?`,
+    `Hey {name}\n\nI see you competed in the {championship} this season\n\nHow did you get on?`,
   ];
 
   function getRandomOutreach() {

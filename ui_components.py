@@ -338,7 +338,7 @@ def _perf_opener(detail, first_name, event_name="", outreach_mode="race_weekend"
     # END OF SEASON MODE — reference the championship and season, not a circuit
     if outreach_mode == 'end_of_season' and championship:
         if not detail:
-            return f"Hey {first_name}, I see you were competing in the {championship} this season. How did it go for you?"
+            return f"Hey {first_name}, I see you competed in the {championship} this season. How was your season?"
 
         race_pos = detail.get('race_pos')
         season_best = detail.get('season_best')
@@ -347,14 +347,14 @@ def _perf_opener(detail, first_name, event_name="", outreach_mode="race_weekend"
 
         if race_pos:
             if race_pos <= 3:
-                return f"Hey {first_name}, I see you were competing in the {championship} this season - P{race_pos} in the championship is a mega result! How are you feeling about it?"
+                return f"Hey {first_name}, I see you competed in the {championship} this season - P{race_pos} in the championship is a mega result! How are you feeling about it?"
             elif extended_trend in ('consistently_improving', 'generally_improving'):
-                return f"Hey {first_name}, I see you were racing in the {championship} this season and the form got stronger as it went on. How are you feeling about the season overall?"
+                return f"Hey {first_name}, I see you competed in the {championship} this season and the form got stronger as it went on. How are you feeling about your performance?"
             elif season_best and season_best <= 5:
                 return f"Hey {first_name}, saw you competed in the {championship} this season, with a best of P{season_best}. How did you find the season overall?"
             else:
-                return f"Hey {first_name}, I see you competed in the {championship} this season. How did it go for you?"
-        return f"Hey {first_name}, I see you were competing in the {championship} this season. How did it go for you?"
+                return f"Hey {first_name}, I see you competed in the {championship} this season. How did it go?"
+        return f"Hey {first_name}, I see you competed in the {championship} this season. How was it for you?"
 
     # RACE WEEKEND MODE (original logic)
     if not detail:
