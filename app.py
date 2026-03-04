@@ -887,21 +887,31 @@ def render_dashboard(dashboard, daily_metrics, drivers):
                     seen_ids.add(dedup_key)
                 stage_drivers.append(r)
 
-            # SORT: Priority — stalled/needing action first, then by date
-            def _priority_key(r):
-                is_stalled = _is_stalled(r)
-                needs_fu = _needs_follow_up(r, stage['date_attr'])
-                days = _days_at_stage(r, stage['date_attr'])
-                # Priority: stalled (0) > needs follow-up (1) > fresh (2)
-                if is_stalled:
-                    priority = 0
-                elif needs_fu:
-                    priority = 1
-                else:
-                    priority = 2
-                return (priority, -days)
+            # SORT: Messaged stage → most recent first (just waiting, no follow-ups).
+            # All other stages → priority sort (stalled/needs action first, then by wait time).
+            _is_messaged_stage = stage['label'] == 'Messaged'
 
-            stage_drivers.sort(key=_priority_key)
+            if _is_messaged_stage:
+                # Most recently messaged at top
+                def _recency_key(r):
+                    d = _normalize_dt(getattr(r, stage['date_attr'], None))
+                    return d or datetime.min
+                stage_drivers.sort(key=_recency_key, reverse=True)
+            else:
+                def _priority_key(r):
+                    is_stalled = _is_stalled(r)
+                    needs_fu = _needs_follow_up(r, stage['date_attr'])
+                    days = _days_at_stage(r, stage['date_attr'])
+                    # Priority: stalled (0) > needs follow-up (1) > fresh (2)
+                    if is_stalled:
+                        priority = 0
+                    elif needs_fu:
+                        priority = 1
+                    else:
+                        priority = 2
+                    return (priority, -days)
+
+                stage_drivers.sort(key=_priority_key)
 
             # Count Badge + follow-up count
             fu_in_col = sum(1 for r in stage_drivers if _needs_follow_up(r, stage['date_attr']))
