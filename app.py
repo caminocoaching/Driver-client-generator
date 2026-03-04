@@ -1809,10 +1809,11 @@ def render_race_outreach(dashboard):
         _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
         _ai_dict = st.session_state.get('_ext_ai_messages', {})
         _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
+        _d = st.session_state.get('_ext_current_driver', '').replace('"', '&quot;')
         _mode = "end_of_season" if _is_end_of_season else "race_weekend"
         st.markdown(
             f'<div id="ag-active-circuit" data-circuit="{_c}" data-champ="{_ch}" '
-            f'data-outreach-mode="{_mode}" '
+            f'data-driver="{_d}" data-outreach-mode="{_mode}" '
             f'data-ai-msg="{_ai}" data-ai-messages="{_ai_json}" style="display:none;"></div>',
             unsafe_allow_html=True
         )
@@ -3051,6 +3052,8 @@ def render_race_outreach(dashboard):
                 # extension can substitute the correct name at click time
                 _ext_ai = _ai_msg.replace(f_name, '{name}', 1) if f_name and f_name in _ai_msg else _ai_msg
                 st.session_state['_ext_ai_outreach_msg'] = _ext_ai
+                # Sync the current driver name to Chrome extension
+                st.session_state['_ext_current_driver'] = r['original_name']
                 # Also store per-driver dict so extension can look up by name
                 if '_ext_ai_messages' not in st.session_state:
                     st.session_state['_ext_ai_messages'] = {}

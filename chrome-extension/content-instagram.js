@@ -840,7 +840,7 @@
   function extractConversationName() {
     const skipWords = ['Instagram', 'Direct', 'Messages', 'New message', 'New Message',
       'Active', 'Search', 'Chats', 'Primary', 'General', 'Requests',
-      'Message...', 'Send', 'Audio call ended', 'Video', 'Link',
+      'Message...', 'Send', 'Audio call ended', 'Video', 'Link', 'Verified',
       '_caminocoaching', 'caminocoaching', 'thecaminocoach',
       'camino_coaching', 'caminocoach', 'Your note', 'Ask friends anything',
       'Threads', 'Suggested for you', 'Following', 'Followers',
@@ -1628,11 +1628,13 @@
             if (circuitInput) circuitInput.focus();
             return;
           }
-          // Get championship from chrome.storage (synced from Streamlit app)
+          // Get championship + driver name from chrome.storage (synced from Streamlit app)
           let championship = '';
+          let appDriverName = '';
           try {
-            const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
+            const data = await new Promise(r => chrome.storage.local.get(['ag_championship', 'ag_current_driver'], r));
             championship = cleanChampionshipName(data.ag_championship || '');
+            appDriverName = (data.ag_current_driver || '').trim();
           } catch (e) { /* ignore */ }
           // Expand random templates FIRST
           let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach()
@@ -1643,7 +1645,9 @@
             showToast('⚠️ Set championship in the pipeline app first');
             return;
           }
-          const msg = tmpl.replace(/\{name\}/g, getFirstName(pipelineDriverName || currentName))
+          // Name priority: pipelineDriverName > appDriverName (from outreach card) > currentName
+          const bestName = pipelineDriverName || appDriverName || currentName;
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(bestName))
             .replace(/\{circuit\}/g, circuit)
             .replace(/\{championship\}/g, championship);
           const pasted = await pasteIntoInput(msg);
@@ -1743,9 +1747,11 @@
             return;
           }
           let championship = '';
+          let appDriverName = '';
           try {
-            const data = await new Promise(r => chrome.storage.local.get('ag_championship', r));
+            const data = await new Promise(r => chrome.storage.local.get(['ag_championship', 'ag_current_driver'], r));
             championship = cleanChampionshipName(data.ag_championship || '');
+            appDriverName = (data.ag_current_driver || '').trim();
           } catch (e) { /* ignore */ }
           if (template.includes('{championship}') && !championship) {
             showToast('⚠️ Select a championship in the pipeline app first');
@@ -1754,7 +1760,8 @@
           let tmpl = template.includes('__RANDOM_OUTREACH__') ? getRandomOutreach()
             : template.includes('__RANDOM_END_OF_SEASON__') ? getRandomEndOfSeason()
               : template;
-          const msg = tmpl.replace(/\{name\}/g, getFirstName(currentName))
+          const bestName = pipelineDriverName || appDriverName || currentName;
+          const msg = tmpl.replace(/\{name\}/g, getFirstName(bestName))
             .replace(/\{circuit\}/g, circuit)
             .replace(/\{championship\}/g, championship);
           const pasted = await pasteIntoInput(msg);
