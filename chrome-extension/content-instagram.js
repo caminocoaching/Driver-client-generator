@@ -840,7 +840,7 @@
   function extractConversationName() {
     const skipWords = ['Instagram', 'Direct', 'Messages', 'New message', 'New Message',
       'Active', 'Search', 'Chats', 'Primary', 'General', 'Requests',
-      'Message...', 'Send', 'Audio call ended', 'Video',
+      'Message...', 'Send', 'Audio call ended', 'Video', 'Link',
       '_caminocoaching', 'caminocoaching', 'thecaminocoach',
       'camino_coaching', 'caminocoach', 'Your note', 'Ask friends anything',
       'Threads', 'Suggested for you', 'Following', 'Followers',
@@ -848,7 +848,8 @@
       // Instagram navigation items (sidebar/bottom nav)
       'Home', 'Explore', 'Create', 'Profile', 'More', 'Notifications',
       'Shop', 'Settings', 'Saved', 'Switch accounts', 'Log out',
-      'Report a problem', 'Note', 'Notes', 'Reel'];
+      'Report a problem', 'Note', 'Notes', 'Reel', 'Share',
+      'Like', 'Comment', 'See translation', 'Translate'];
 
     // Instagram notification / inbox preview patterns that should never be treated as names
     const notificationPatterns = [

@@ -1804,7 +1804,8 @@ def render_race_outreach(dashboard):
         """Inject hidden div for Chrome extension to read circuit/champ/AI message/outreach mode."""
         import json as _json_mod
         _c = (event_name_input or "").replace('"', '&quot;')
-        _ch = st.session_state.get('global_championship', '').replace('"', '&quot;')
+        _ch_key = st.session_state.get('global_championship', '')
+        _ch = _CHAMP_DISPLAY_NAMES.get(_ch_key, _ch_key).replace('"', '&quot;')
         _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
         _ai_dict = st.session_state.get('_ext_ai_messages', {})
         _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
