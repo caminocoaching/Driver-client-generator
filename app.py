@@ -1234,6 +1234,12 @@ def render_race_outreach(dashboard):
         "Porsche Sprint NA": "paste",
         "IndyNXT": "paste",
         "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
+        "CTFROC (Formula Regional Oceania)": "paste",
+        "GR86 Championship NZ": "paste",
+        "Summerset GT NZ": "paste",
+        "GTRNZ": "paste",
+        "TA2 NZ": "paste",
+        "NZ Formula Ford": "paste",
     }
 
     with st.expander("🔬 **Research New Championship**", expanded=False):
@@ -1567,17 +1573,40 @@ def render_race_outreach(dashboard):
         if curr in opts:
             idx = opts.index(curr)
 
+        # Full display names for championships — shown in dropdown
+        _CHAMP_DISPLAY_NAMES = {
+            "BTCC": "British Touring Car Championship (BTCC)",
+            "British F4": "British Formula 4 Championship",
+            "GB3": "GB3 Championship",
+            "British GT": "British GT Championship",
+            "UAE F4": "UAE Formula 4 Championship",
+            "Porsche Cup GB": "Porsche Carrera Cup Great Britain",
+            "Porsche Cup NA": "Porsche Carrera Cup North America",
+            "Porsche Cup AU": "Porsche Carrera Cup Australia",
+            "Porsche Cup NZ": "Porsche Carrera Cup New Zealand",
+            "Porsche Sprint NA": "Porsche Sprint Challenge North America",
+            "DTM": "Deutsche Tourenwagen Masters (DTM)",
+            "IndyNXT": "IndyNXT Series (Indy Lights)",
+            "GR86 Championship NZ": "Toyota GR86 Championship New Zealand",
+            "CTFROC (Formula Regional Oceania)": "Castrol Toyota Formula Regional Oceania Trophy",
+            "Summerset GT NZ": "Summerset GT Championship New Zealand",
+            "GTRNZ": "GT Racing New Zealand (GTRNZ)",
+            "TA2 NZ": "TA2 Muscle Car Series New Zealand",
+            "NZ Formula Ford": "New Zealand Formula Ford Championship",
+        }
+
         def _format_champ_label(val):
             if val == "➕ Add New...":
                 return val
+            _display = _CHAMP_DISPLAY_NAMES.get(val, val)
             _fin = _get_last_finished_round(val, _today)
             if _fin:
                 _rd, _days = _fin
                 if _days <= 3:
-                    return f"🔥 {val}"
+                    return f"🔥 {_display}"
                 elif _days <= 14:
-                    return f"📅 {val}"
-            return val
+                    return f"📅 {_display}"
+            return _display
 
         def _on_champ_change():
             val = st.session_state._outreach_champ
@@ -1676,7 +1705,7 @@ def render_race_outreach(dashboard):
                 st.session_state['_outreach_round_idx'] = st.session_state._outreach_round_sel
 
             _sel_round_idx = st.selectbox(
-                f"📅 {selected_champ} — Select Round",
+                f"📅 {_CHAMP_DISPLAY_NAMES.get(selected_champ, selected_champ)} — Select Round",
                 options=list(range(len(_round_opts))),
                 index=_stored_idx,
                 format_func=lambda i: _round_opts[i],
@@ -1744,7 +1773,7 @@ def render_race_outreach(dashboard):
                 f'border-radius:10px;margin:8px 0;border-left:4px solid #f59e0b;">'
                 f'<span style="font-size:18px;font-weight:700;color:#fbbf24;">'
                 f'🏆 End of Season Outreach</span>'
-                f'<span style="color:#d4a0ff;margin-left:12px;font-size:15px;">{selected_champ}</span>'
+                f'<span style="color:#d4a0ff;margin-left:12px;font-size:15px;">{_CHAMP_DISPLAY_NAMES.get(selected_champ, selected_champ)}</span>'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -1754,7 +1783,7 @@ def render_race_outreach(dashboard):
                 f'border-radius:10px;margin:8px 0;border-left:4px solid '
                 f'{RACE_CALENDARS.get(selected_champ, {}).get("color", "#4CAF50")};">'
                 f'<span style="font-size:18px;font-weight:700;color:#fff;">'
-                f'🏁 {selected_champ}</span>'
+                f'🏁 {_CHAMP_DISPLAY_NAMES.get(selected_champ, selected_champ)}</span>'
                 f'<span style="color:#aaa;margin-left:12px;font-size:15px;">{event_name}</span>'
                 f'</div>',
                 unsafe_allow_html=True
@@ -2493,15 +2522,44 @@ def render_race_outreach(dashboard):
             "Porsche Sprint NA": ("porschesprint.com/results", "https://porschesprint.com/results"),
             "IndyNXT": ("indycar.com — IndyNXT Results", "https://www.indycar.com/results"),
             "DTM": ("dtm.com/results", "https://www.dtm.com/en/results"),
+            "CTFROC (Formula Regional Oceania)": ("toyota.co.nz — FR Oceania", "https://www.toyota.co.nz/toyota-racing/castrol-toyota-fr-oceania/"),
         }
-        _link = _paste_links.get(selected_champ)
-        if _link:
-            st.caption(f"📋 Download results from [{_link[0]}]({_link[1]}) → copy driver names → paste below.")
+
+        # Auto-load from pre-built CSV in imports/ folder
+        # Maps championship name → CSV filename slug
+        _CSV_DRIVER_FILES = {
+            "CTFROC (Formula Regional Oceania)": "ctfroc_2026_drivers.csv",
+            "UAE F4": "uae_f4_2026_drivers.csv",
+        }
+        _csv_file = _CSV_DRIVER_FILES.get(selected_champ)
+        _csv_path = os.path.join(BASE_DIR, "imports", _csv_file) if _csv_file else None
+        _csv_names = []
+        if _csv_path and os.path.exists(_csv_path):
+            try:
+                _csv_df = pd.read_csv(_csv_path)
+                # Normalize column names to lowercase for matching
+                _csv_df.columns = [c.strip().lower().replace(' ', '_') for c in _csv_df.columns]
+                for _, _row in _csv_df.iterrows():
+                    _fn = str(_row.get('first_name', '')).strip()
+                    _ln = str(_row.get('last_name', '')).strip()
+                    if _fn and _ln and _fn != 'nan' and _ln != 'nan':
+                        _csv_names.append(f"{_fn} {_ln}")
+            except Exception:
+                pass
+
+        if _csv_names and not raw_results_list:
+            # Auto-load drivers from CSV
+            raw_results_list = _csv_names
+            st.success(f"✅ {len(_csv_names)} drivers auto-loaded from {_csv_file}")
         else:
-            st.caption("Paste driver names from any timing sheet — one name per line.")
-        text_input = st.text_area("Driver List (Name per line)", height=150, key="paste_names_input")
-        if text_input:
-            raw_results_list = text_input.split('\n')
+            _link = _paste_links.get(selected_champ)
+            if _link:
+                st.caption(f"📋 Download results from [{_link[0]}]({_link[1]}) → copy driver names → paste below.")
+            else:
+                st.caption("Paste driver names from any timing sheet — one name per line.")
+            text_input = st.text_area("Driver List (Name per line)", height=150, key="paste_names_input")
+            if text_input:
+                raw_results_list = text_input.split('\n')
     
     col_analyze, col_clear = st.columns([1, 4])
 

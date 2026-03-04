@@ -261,7 +261,10 @@
       const m = href.match(/facebook\.com\/(profile\.php\?id=[0-9]+|[A-Za-z0-9._]+)/);
       if (m) {
         const rect = a.getBoundingClientRect();
-        if (rect.top > 0 && rect.top < 150 && rect.width > 15) {
+        // Check header area (full Messenger page) OR bottom area (popup chat)
+        const inHeader = rect.top > 0 && rect.top < 150 && rect.width > 15;
+        const inPopup = rect.top > window.innerHeight * 0.5 && rect.width > 15;
+        if (inHeader || inPopup) {
           return 'https://www.facebook.com/' + m[1];
         }
       }
@@ -748,6 +751,87 @@
     return false;
   }
 
+  // ── Messenger Popup Chat Detection ──────────────────────────────────────
+  // Detects floating Messenger popup chats at the bottom of any Facebook page
+  // (Groups, Feed, Events, etc.) and extracts the contact name from the header.
+  function extractPopupChatName() {
+    // Find Messenger popup chat windows — fixed-position containers at bottom
+    // of screen with a chat input (textbox) inside
+    const allTextboxes = document.querySelectorAll('div[role="textbox"][contenteditable="true"]');
+    for (const textbox of allTextboxes) {
+      const label = (textbox.getAttribute('aria-label') || '').toLowerCase();
+      if (label !== 'message' && label !== 'message…' && label !== 'message...' &&
+        label !== 'type a message' && label !== 'type a message…' && label !== 'aa') continue;
+
+      // Walk up to find a fixed-position popup container
+      let container = textbox.parentElement;
+      let depth = 0;
+      while (container && depth < 30) {
+        const style = window.getComputedStyle(container);
+        if (style.position === 'fixed') break;
+        container = container.parentElement;
+        depth++;
+      }
+      if (!container || depth >= 30) continue;
+
+      const containerRect = container.getBoundingClientRect();
+      // Popup chats are at the bottom of the screen
+      if (containerRect.bottom < window.innerHeight * 0.5) continue;
+
+      // Found a fixed chat popup — look for the name in the header area
+      // Strategy CP1: Profile links in the popup header
+      const links = container.querySelectorAll('a[href*="facebook.com/"], a[href^="/"]');
+      for (const link of links) {
+        const href = link.href || link.getAttribute('href') || '';
+        if (href.includes('/messages') || href.includes('/t/') || href.includes('/groups/') ||
+          href.includes('/settings') || href.includes('/notifications')) continue;
+        // Must be a profile-like URL
+        if (!href.match(/facebook\.com\/[A-Za-z0-9._]+/) && !href.match(/^\/[A-Za-z0-9._]+\/?$/)) continue;
+
+        const rect = link.getBoundingClientRect();
+        // Must be in the top portion of the popup (header area)
+        if (rect.top < containerRect.top || rect.top > containerRect.top + 60) continue;
+        if (rect.width < 15) continue;
+
+        const spans = link.querySelectorAll('span');
+        for (const span of spans) {
+          const text = span.textContent.trim();
+          if (isValidRiderName(text)) return text;
+        }
+        const linkText = link.textContent.trim();
+        if (isValidRiderName(linkText)) return linkText;
+      }
+
+      // Strategy CP2: Bold/prominent spans in the popup header
+      const popupSpans = container.querySelectorAll('span[dir="auto"], span');
+      for (const span of popupSpans) {
+        const rect = span.getBoundingClientRect();
+        // Must be in the top area of the popup (header)
+        if (rect.top < containerRect.top || rect.top > containerRect.top + 55) continue;
+        if (rect.width < 20) continue;
+
+        const style = window.getComputedStyle(span);
+        const fontWeight = parseInt(style.fontWeight) || 400;
+        const fontSize = parseFloat(style.fontSize);
+        // Chat header names are typically bold (600+) and decent size (13px+)
+        if (fontWeight >= 600 && fontSize >= 13) {
+          const text = span.textContent.trim();
+          if (isValidRiderName(text)) return text;
+        }
+      }
+
+      // Strategy CP3: Any heading elements in the popup header area
+      const headings = container.querySelectorAll('h1, h2, h3, h4, [role="heading"]');
+      for (const h of headings) {
+        const rect = h.getBoundingClientRect();
+        if (rect.top < containerRect.top || rect.top > containerRect.top + 60) continue;
+        const text = h.textContent.trim();
+        if (isValidRiderName(text)) return text;
+      }
+    }
+    return null;
+  }
+
   function extractConversationName() {
     const DEBUG = false; // flip to true in DevTools: document.querySelector('#antigravity-rider-btn').__AG_DEBUG = true
     function dbg(...args) { if (DEBUG) console.log('[AG]', ...args); }
@@ -884,6 +968,15 @@
 
       dbg('Profile page: no name found');
       return null;
+    }
+
+    // ── MESSENGER POPUP: Detect chat popups floating on any Facebook page ──
+    // Facebook's Messenger popup appears at bottom-right as a fixed-position
+    // chat window. This works on Group pages, Feed, Events, etc.
+    const popupName = extractPopupChatName();
+    if (popupName) {
+      dbg('Popup chat name:', popupName);
+      return cleanName(popupName);
     }
 
     // ── MESSENGER PAGE: Chat header strategies ──
@@ -2138,8 +2231,9 @@
       updateTimeout = setTimeout(updateButton, 500);
     });
 
-    const target = document.querySelector('div[role="main"]') || document.body;
-    observer.observe(target, { childList: true, subtree: true });
+    // Always observe document.body — Messenger popup chats are appended outside
+    // div[role="main"], so we need body-level observation to detect them.
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   // ── Initialize ──────────────────────────────────────────────────────────
