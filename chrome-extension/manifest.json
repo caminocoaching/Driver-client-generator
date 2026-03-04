@@ -17,7 +17,7 @@
         "*://www.instagram.com/*",
         "*://instagram.com/*",
         "*://messenger.com/*",
-        "*://driver-client-generator.streamlit.app/*",
+        "*://driver-client-generator*.streamlit.app/*",
         "*://api.airtable.com/*"
     ],
     "background": {
@@ -60,7 +60,7 @@
         },
         {
             "matches": [
-                "*://driver-client-generator.streamlit.app/*"
+                "*://driver-client-generator*.streamlit.app/*"
             ],
             "js": [
                 "content-streamlit.js"
