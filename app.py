@@ -3097,7 +3097,7 @@ def render_race_outreach(dashboard):
 
                     # Build URLs for all 4 searches
                     _fb_name_url = f"https://www.facebook.com/search/people/?q={driver_name_q}#ag_driver={_ag_hash}"
-                    _fb_race_url = f"https://www.google.com/search?q=%22{driver_name_q}%22+facebook"
+                    _fb_race_url = f"https://www.google.com/search?q={_racing_q}"
                     _ig_name_url = f"https://www.google.com/search?q={driver_name_q}+instagram"
                     _ig_race_url = f"https://www.google.com/search?q={_racing_q}+instagram"
 
@@ -3142,7 +3142,7 @@ def render_race_outreach(dashboard):
                     <button class="open4-btn" onclick="openAll4()">🚀 Open All 4 Searches</button>
                     <div class="links">
                         <a href="{_fb_name_url}" target="_blank" class="fb">👤 FB Name</a>
-                        <a href="{_fb_race_url}" target="_blank" class="gg">🔍 Google FB</a>
+                        <a href="{_fb_race_url}" target="_blank" class="gg">🔍 Google Racing</a>
                         <a href="{_ig_name_url}" target="_blank" class="ig">📸 IG Name</a>
                         <a href="{_ig_race_url}" target="_blank" class="ig">🏁 IG Race</a>
                     </div>
