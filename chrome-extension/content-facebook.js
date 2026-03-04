@@ -1240,7 +1240,7 @@
   // ── Auto-add friend on Facebook profile pages ──────────────────────────
   // Finds and clicks the "Add friend" button. Silently skips if not on a
   // profile page, already friends, or button can't be found.
-  function clickAddFriendButton() {
+  function clickAddFriendButton(retryCount = 0) {
     if (!isProfilePage()) {
       console.log('[AG] Not a profile page — skipping Add Friend');
       return false;
@@ -1248,9 +1248,7 @@
 
     // Strategy 1: aria-label match (most reliable)
     const ariaBtn = document.querySelector(
-      'div[aria-label="Add friend"], div[aria-label="Add Friend"],' +
-      'a[aria-label="Add friend"], a[aria-label="Add Friend"],' +
-      'button[aria-label="Add friend"], button[aria-label="Add Friend"]'
+      '[aria-label="Add friend"], [aria-label="Add Friend"]'
     );
     if (ariaBtn) {
       ariaBtn.click();
@@ -1259,7 +1257,27 @@
       return true;
     }
 
-    // Strategy 2: Text content match — profile action buttons
+    // Strategy 2: Span text inside buttons — Facebook wraps button labels in <span>
+    const allSpans = document.querySelectorAll(
+      'div[role="button"] span, a[role="button"] span, button span'
+    );
+    for (const span of allSpans) {
+      const text = span.textContent.trim();
+      if (/^Add [Ff]riend$/i.test(text)) {
+        const btn = span.closest('[role="button"], button');
+        if (btn) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.top > 50 && rect.top < 900 && rect.width > 20) {
+            btn.click();
+            console.log('[AG] ✅ Add Friend clicked (span text)');
+            showToast('👋 Friend request sent!', '#3b82f6');
+            return true;
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Direct button text content match
     const candidates = document.querySelectorAll(
       'div[role="button"], a[role="button"], button'
     );
@@ -1267,8 +1285,7 @@
       const text = el.textContent.trim();
       if (/^Add [Ff]riend$/i.test(text)) {
         const rect = el.getBoundingClientRect();
-        // Profile action buttons are in the upper-middle area of the page
-        if (rect.top > 100 && rect.top < 800 && rect.width > 20) {
+        if (rect.top > 50 && rect.top < 900 && rect.width > 20) {
           el.click();
           console.log('[AG] ✅ Add Friend clicked (text match)');
           showToast('👋 Friend request sent!', '#3b82f6');
@@ -1277,21 +1294,17 @@
       }
     }
 
-    // Strategy 3: Look for the person-plus SVG icon (Facebook's add-friend icon)
-    // The button often contains an SVG with a person+plus icon
+    // Strategy 4: SVG icon match (person-plus icon)
     const allButtons = document.querySelectorAll('div[role="button"], a[role="button"]');
     for (const el of allButtons) {
       const svg = el.querySelector('svg');
       if (!svg) continue;
-      // Check for the typical add-friend icon: contains both a person shape and a plus
       const paths = svg.querySelectorAll('path');
       const svgText = svg.innerHTML || '';
-      // Facebook's add-friend icon has a person silhouette + plus sign
       if (paths.length >= 2 && (svgText.includes('M18') || svgText.includes('M15'))) {
         const parent = el.closest('[role="button"]') || el;
         const rect = parent.getBoundingClientRect();
-        if (rect.top > 100 && rect.top < 800) {
-          // Verify it's not the "Message" or "Follow" button by checking nearby text
+        if (rect.top > 50 && rect.top < 900) {
           const nearbyText = parent.textContent.trim().toLowerCase();
           if (nearbyText.includes('add') || nearbyText === '' || nearbyText.includes('friend')) {
             parent.click();
@@ -1303,7 +1316,14 @@
       }
     }
 
-    console.log('[AG] Add Friend button not found — may already be friends');
+    // Retry — button may not be loaded yet on slow profiles
+    if (retryCount < 2) {
+      console.log(`[AG] Add Friend not found — retry ${retryCount + 1} in 2s`);
+      setTimeout(() => clickAddFriendButton(retryCount + 1), 2000);
+      return false;
+    }
+
+    console.log('[AG] Add Friend button not found — may already be friends or a Page');
     return false;
   }
 
@@ -2031,6 +2051,8 @@
               await navigator.clipboard.writeText(msg);
               showToast('📤 Copied & saved — paste with Ctrl+V');
             }
+            // Auto-send friend request after outreach
+            setTimeout(() => clickAddFriendButton(), 1000);
           } else {
             if (pasted) {
               if (stage) {
