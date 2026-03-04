@@ -82,23 +82,30 @@
       const circuit = (el.dataset.circuit || el.getAttribute('data-circuit') || '').trim();
       const champ = (el.dataset.champ || el.getAttribute('data-champ') || '').trim();
 
-      // Only write to storage when the value actually changes
-      if (circuit && circuit !== lastCircuit) {
-        lastCircuit = circuit;
+      if (circuit) {
+        if (circuit !== lastCircuit) {
+          console.log('[AG] Circuit synced to extension:', circuit);
+          lastCircuit = circuit;
+        }
         chrome.storage.local.set({ ag_circuit: circuit });
-        console.log('[AG] Circuit synced to extension:', circuit);
       }
-      if (champ && champ !== lastChamp) {
-        lastChamp = champ;
+      // Always sync championship to storage — ensures the active Streamlit tab
+      // overrides any stale value from a previous tab/session
+      if (champ) {
+        if (champ !== lastChamp) {
+          console.log('[AG] Championship synced to extension:', champ);
+          lastChamp = champ;
+        }
         chrome.storage.local.set({ ag_championship: champ });
-        console.log('[AG] Championship synced to extension:', champ);
       }
 
       const driver = (el.dataset.driver || el.getAttribute('data-driver') || '').trim();
-      if (driver && driver !== lastDriver) {
-        lastDriver = driver;
+      if (driver) {
+        if (driver !== lastDriver) {
+          console.log('[AG] Driver synced to extension:', driver);
+          lastDriver = driver;
+        }
         chrome.storage.local.set({ ag_current_driver: driver });
-        console.log('[AG] Driver synced to extension:', driver);
       }
 
       // Sync outreach mode (race_weekend or end_of_season)
