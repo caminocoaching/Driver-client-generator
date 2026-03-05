@@ -1320,7 +1320,7 @@ def render_race_outreach(dashboard):
         "BTCC": "tsl",  "British F4": "tsl", "GB3": "tsl",
         "British GT": "tsl", "Porsche Cup GB": "tsl",
         "Porsche Cup NA": "imsa",
-        "Porsche Cup AU": "computime",
+        "Porsche Cup AU": "paste",
         "Porsche Sprint NA": "paste",
         "IndyNXT": "paste",
         "UAE F4": "paste", "Porsche Cup NZ": "paste", "DTM": "paste",
@@ -2763,6 +2763,7 @@ def render_race_outreach(dashboard):
             "UAE F4": "uae_f4_2026_drivers.csv",
             "GTRNZ": "gtrnz_2026_drivers.csv",
             "GTWCA": "gtwca_2026_drivers.csv",
+            "Porsche Cup AU": "porsche_cup_au_drivers.csv",
         }
         # Merge any dynamically created CSV files from researcher imports
         _CSV_DRIVER_FILES.update(st.session_state.get('_dynamic_csv_files', {}))
@@ -5293,11 +5294,11 @@ def render_calendar_view(dashboard):
         for _rd in _series_data["rounds"]:
             # Strip flag emojis from venue name for circuit field
             _venue = _rd['name'].replace('🇺🇸', '').replace('🇦🇺', '').replace('🇳🇿', '').replace('🇬🇧', '').replace('🇦🇪', '').replace('🇩🇪', '').replace('🇦🇹', '').replace('🇮🇹', '').replace('🇪🇸', '').replace('🇫🇷', '').strip()
-            # FullCalendar 'end' is exclusive — add 1 day so the pill covers
-            # the final day (e.g. Fri-Sun event needs end = Monday)
-            from datetime import date as _dt_date
-            _end_inclusive = _dt_date.fromisoformat(_rd["end"])
-            _end_exclusive = (_end_inclusive + timedelta(days=1)).isoformat()
+            # FullCalendar 'end' is exclusive. Our hardcoded data already stores
+            # end as exclusive (e.g. Mon for Fri-Sun events). Researcher-imported
+            # data also uses inclusive end dates that get +1'd by research_to_calendar_dict.
+            # So we use the end date as-is.
+            _end_exclusive = _rd["end"]
             # Visible clickable multi-day pill
             events.append({
                 "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",

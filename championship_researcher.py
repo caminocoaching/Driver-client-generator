@@ -504,6 +504,15 @@ class ChampionshipResearcher:
 # ---------------------------------------------------------------------------
 # Helper: Convert research results to RACE_CALENDARS format
 # ---------------------------------------------------------------------------
+def _make_exclusive_end(date_str: str) -> str:
+    """Add 1 day to an inclusive end date for FullCalendar (which uses exclusive end dates)."""
+    try:
+        from datetime import timedelta
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        return (d + timedelta(days=1)).strftime("%Y-%m-%d")
+    except Exception:
+        return date_str
+
 def research_to_calendar_dict(data: Dict, color: str = "#607D8B") -> Dict:
     """Convert research results to the RACE_CALENDARS entry format."""
     rounds = []
@@ -523,7 +532,10 @@ def research_to_calendar_dict(data: Dict, color: str = "#607D8B") -> Dict:
                 "round": event.get("round", f"R{len(rounds)+1}"),
                 "name": name,
                 "start": event["start_date"],
-                "end": event["end_date"],
+                # Hardcoded calendars use exclusive end dates (Mon for Fri-Sun events).
+                # Gemini extracts inclusive dates (actual last day), so add 1 day
+                # to match the format expected by the calendar render.
+                "end": _make_exclusive_end(event["end_date"]),
             })
     
     return {
