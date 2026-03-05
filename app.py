@@ -1542,6 +1542,9 @@ def render_race_outreach(dashboard):
                                             _msgs.append(f"🔗 Speedhive org linked")
                                 except Exception as _sh_err:
                                     pass  # Non-critical — timing can still work via URL paste
+                        else:
+                            # No timing source detected — default to 'paste' for CSV/manual input
+                            _CHAMP_TIMING_SOURCE[_champ_name] = 'paste'
 
                         st.success("✅ **All imported!** " + " · ".join(_msgs))
                         st.toast(f"🚀 {_champ_name} — ready for outreach!")
