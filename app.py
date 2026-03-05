@@ -227,7 +227,11 @@ RACE_CALENDARS = {
     "GTRNZ": {
         "color": "#004D40",  # Dark Teal-Green
         "rounds": [
-            {"round": "R1", "name": "Hampton Downs 🇳🇿", "start": "2026-01-09", "end": "2026-01-11"},
+            {"round": "R1", "name": "Manfeild 🇳🇿", "start": "2025-10-31", "end": "2025-11-02"},
+            {"round": "R2", "name": "Hampton Downs 🇳🇿", "start": "2025-11-22", "end": "2025-11-23"},
+            {"round": "R3", "name": "Hampton Downs International 🇳🇿", "start": "2026-01-09", "end": "2026-01-11"},
+            {"round": "R4", "name": "Hampton Downs 🇳🇿", "start": "2026-02-14", "end": "2026-02-15"},
+            {"round": "R5", "name": "Taupo 🇳🇿", "start": "2026-03-14", "end": "2026-03-15"},
         ]
     },
     "TA2 NZ": {
@@ -2641,6 +2645,7 @@ def render_race_outreach(dashboard):
             "IndyNXT": ("indycar.com — IndyNXT Results", "https://www.indycar.com/results"),
             "DTM": ("dtm.com/results", "https://www.dtm.com/en/results"),
             "CTFROC (Formula Regional Oceania)": ("toyota.co.nz — FR Oceania", "https://www.toyota.co.nz/toyota-racing/castrol-toyota-fr-oceania/"),
+            "GTRNZ": ("gtrnz.co.nz/results", "https://www.gtrnz.co.nz/results/"),
         }
 
         # Auto-load from pre-built CSV in imports/ folder
@@ -2648,6 +2653,7 @@ def render_race_outreach(dashboard):
         _CSV_DRIVER_FILES = {
             "CTFROC (Formula Regional Oceania)": "ctfroc_2026_drivers.csv",
             "UAE F4": "uae_f4_2026_drivers.csv",
+            "GTRNZ": "gtrnz_2026_drivers.csv",
         }
         _csv_file = _CSV_DRIVER_FILES.get(selected_champ)
         _csv_path = os.path.join(BASE_DIR, "imports", _csv_file) if _csv_file else None
