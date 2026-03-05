@@ -1333,7 +1333,8 @@ def render_race_outreach(dashboard):
         "GTWCA": "paste",
     }
 
-    with st.expander("🔬 **Research New Championship**", expanded=False):
+    _research_expanded = '_research_result' in st.session_state
+    with st.expander("🔬 **Research New Championship**", expanded=_research_expanded):
         if not _has_research_keys:
             st.info(
                 "🔑 To enable AI championship research, add your free API keys to `.streamlit/secrets.toml`:\n\n"
@@ -1446,109 +1447,121 @@ def render_race_outreach(dashboard):
                         _import_label += f" ({', '.join(_import_parts)})"
 
                     if st.button(_import_label, key="research_import_all", type="primary", use_container_width=True):
-                        _msgs = []
-                        # 1. Add calendar
-                        if _has_cal:
-                            from championship_researcher import research_to_calendar_dict
-                            _new_cal = research_to_calendar_dict(_rdata, color="#607D8B")
-                            if _new_cal["rounds"]:
-                                RACE_CALENDARS[_champ_name] = _new_cal
-                                _sa = st.session_state.get('session_added_championships', [])
-                                if _champ_name not in _sa:
-                                    _sa.append(_champ_name)
-                                    st.session_state.session_added_championships = _sa
-                                _persist_championships()
-                                _msgs.append(f"📅 {len(_new_cal['rounds'])} rounds added")
-                        # 2. Queue drivers for outreach list (NOT pipeline)
-                        # They'll appear in the driver list below, ready to search & message
-                        if _has_drivers:
-                            _driver_names = []
-                            _csv_lines = ["first_name,last_name"]
-                            for d in _rdata.get('drivers', []):
-                                _first = d.get('first_name', '').strip()
-                                _last = d.get('last_name', '').strip()
-                                if _first and _last:
-                                    _driver_names.append(f"{_first} {_last}")
-                                    # Escape commas in names for CSV
-                                    _csv_lines.append(f"{_first.replace(',','')},{_last.replace(',','')}")
-                            if _driver_names:
-                                # Store names for the outreach list to pick up
-                                st.session_state['_research_driver_names'] = _driver_names
-                                st.session_state['_run_analysis_on_update'] = True
-                                _msgs.append(f"🏎️ {len(_driver_names)} drivers queued for outreach")
-                                # Also save to CSV for auto-load on future visits
-                                _csv_slug = _champ_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
-                                _csv_filename = f"{_csv_slug}_drivers.csv"
-                                _csv_path = os.path.join(BASE_DIR, "imports", _csv_filename)
-                                os.makedirs(os.path.join(BASE_DIR, "imports"), exist_ok=True)
-                                with open(_csv_path, 'w') as _csvf:
-                                    _csvf.write('\n'.join(_csv_lines))
-                                _CSV_DRIVER_FILES_DYNAMIC = st.session_state.get('_dynamic_csv_files', {})
-                                _CSV_DRIVER_FILES_DYNAMIC[_champ_name] = _csv_filename
-                                st.session_state['_dynamic_csv_files'] = _CSV_DRIVER_FILES_DYNAMIC
-                                _msgs.append(f"💾 Drivers saved to `imports/{_csv_filename}`")
-                        # 3. Auto-select championship — reset widget keys so UI updates
-                        st.session_state.global_championship = _champ_name
-                        st.session_state.pop('_outreach_champ', None)      # Force selectbox to re-read from global_championship
-                        st.session_state.pop('_outreach_round_idx', None)  # Let round selector auto-pick last finished
-                        # Sync to chrome extension
                         try:
-                            st.query_params['championship'] = _champ_name
-                        except Exception:
-                            pass
-                        # 4. Find last finished event → auto-fill circuit
-                        _last_fin = _get_last_finished_round(_champ_name, _today)
-                        if _last_fin:
-                            _last_rd, _days = _last_fin
-                            _circuit_name = _strip_flags(_last_rd['name'])
-                            _persist_circuit(_circuit_name)
-                            st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_last_rd)})"
-                            _msgs.append(f"🏁 Circuit: **{_circuit_name}** ({_last_rd['round']}, {_days}d ago)")
-                        elif _has_cal and RACE_CALENDARS.get(_champ_name, {}).get('rounds'):
-                            _first_rd = RACE_CALENDARS[_champ_name]['rounds'][0]
-                            _circuit_name = _strip_flags(_first_rd['name'])
-                            _persist_circuit(_circuit_name)
-                            st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_first_rd)})"
-                            _msgs.append(f"🏁 Circuit: **{_circuit_name}** (next event)")
+                            _msgs = []
+                            # 1. Add calendar
+                            if _has_cal:
+                                from championship_researcher import research_to_calendar_dict
+                                _new_cal = research_to_calendar_dict(_rdata, color="#607D8B")
+                                if _new_cal["rounds"]:
+                                    RACE_CALENDARS[_champ_name] = _new_cal
+                                    _sa = st.session_state.get('session_added_championships', [])
+                                    if _champ_name not in _sa:
+                                        _sa.append(_champ_name)
+                                        st.session_state.session_added_championships = _sa
+                                    _persist_championships()
+                                    _msgs.append(f"📅 {len(_new_cal['rounds'])} rounds added")
+                            # 2. Queue drivers for outreach list (NOT pipeline)
+                            if _has_drivers:
+                                _driver_names = []
+                                _csv_lines = ["first_name,last_name"]
+                                for d in _rdata.get('drivers', []):
+                                    _first = d.get('first_name', '').strip()
+                                    _last = d.get('last_name', '').strip()
+                                    if _first and _last:
+                                        _driver_names.append(f"{_first} {_last}")
+                                        _csv_lines.append(f"{_first.replace(',','')},{_last.replace(',','')}")
+                                if _driver_names:
+                                    st.session_state['_research_driver_names'] = _driver_names
+                                    st.session_state['_run_analysis_on_update'] = True
+                                    _msgs.append(f"🏎️ {len(_driver_names)} drivers queued for outreach")
+                                    # Save to CSV for auto-load on future visits
+                                    _csv_slug = _champ_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
+                                    _csv_filename = f"{_csv_slug}_drivers.csv"
+                                    _csv_path = os.path.join(BASE_DIR, "imports", _csv_filename)
+                                    os.makedirs(os.path.join(BASE_DIR, "imports"), exist_ok=True)
+                                    with open(_csv_path, 'w') as _csvf:
+                                        _csvf.write('\n'.join(_csv_lines))
+                                    _CSV_DRIVER_FILES_DYNAMIC = st.session_state.get('_dynamic_csv_files', {})
+                                    _CSV_DRIVER_FILES_DYNAMIC[_champ_name] = _csv_filename
+                                    st.session_state['_dynamic_csv_files'] = _CSV_DRIVER_FILES_DYNAMIC
+                                    _msgs.append(f"💾 Drivers saved to `imports/{_csv_filename}`")
+                            # 3. Auto-select championship
+                            st.session_state.global_championship = _champ_name
+                            st.session_state.pop('_outreach_champ', None)
+                            st.session_state.pop('_outreach_round_idx', None)
+                            # Also add to saved_champs so selectbox can find it
+                            _sa2 = st.session_state.get('session_added_championships', [])
+                            if _champ_name not in _sa2:
+                                _sa2.append(_champ_name)
+                                st.session_state.session_added_championships = _sa2
+                            # Add to timing source
+                            if _champ_name not in _CHAMP_TIMING_SOURCE:
+                                _CHAMP_TIMING_SOURCE[_champ_name] = 'paste'
+                            # Sync to chrome extension
+                            try:
+                                st.query_params['championship'] = _champ_name
+                            except Exception:
+                                pass
+                            # 4. Find last finished event → auto-fill circuit
+                            _last_fin = _get_last_finished_round(_champ_name, _today)
+                            if _last_fin:
+                                _last_rd, _days = _last_fin
+                                _circuit_name = _strip_flags(_last_rd['name'])
+                                _persist_circuit(_circuit_name)
+                                st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_last_rd)})"
+                                _msgs.append(f"🏁 Circuit: **{_circuit_name}** ({_last_rd['round']}, {_days}d ago)")
+                            elif _has_cal and RACE_CALENDARS.get(_champ_name, {}).get('rounds'):
+                                _first_rd = RACE_CALENDARS[_champ_name]['rounds'][0]
+                                _circuit_name = _strip_flags(_first_rd['name'])
+                                _persist_circuit(_circuit_name)
+                                st.session_state['event_name_input'] = f"{_circuit_name} ({_format_round_dates(_first_rd)})"
+                                _msgs.append(f"🏁 Circuit: **{_circuit_name}** (next event)")
 
-                        # 5. Auto-configure timing source if detected
-                        _ts = _rdata.get('timing_source', {})
-                        _ts_type = (_ts.get('type') or 'none').lower().strip()
-                        if _ts_type and _ts_type != 'none':
-                            _CHAMP_TIMING_SOURCE[_champ_name] = _ts_type
-                            _ts_url = _ts.get('url', '')
-                            _ts_labels = {
-                                'speedhive': '🌐 Speedhive',
-                                'tsl': '🇬🇧 TSL Timing',
-                                'computime': '🕐 Computime',
-                                'imsa': '🇺🇸 IMSA',
-                                'natsoft': '🇦🇺 Natsoft',
-                            }
-                            _msgs.append(f"⏱️ Timing: **{_ts_labels.get(_ts_type, _ts_type)}**")
-                            # If Speedhive, try to link the org for easy browsing
-                            if _ts_type == 'speedhive' and _ts_url:
-                                try:
-                                    from speedhive_client import SpeedhiveClient
-                                    _sh = SpeedhiveClient()
-                                    _eid = _sh.extract_event_id(_ts_url)
-                                    if _eid:
-                                        _org = _sh.discover_org_from_event(int(_eid))
-                                        if _org and _org.get('org_id'):
-                                            _linked = st.session_state.get('sh_linked_orgs', {})
-                                            _linked[_champ_name] = _org
-                                            st.session_state.sh_linked_orgs = _linked
-                                            if settings and settings.is_available:
-                                                settings.set('speedhive_orgs', _linked)
-                                            _msgs.append(f"🔗 Speedhive org linked")
-                                except Exception as _sh_err:
-                                    pass  # Non-critical — timing can still work via URL paste
-                        else:
-                            # No timing source detected — default to 'paste' for CSV/manual input
-                            _CHAMP_TIMING_SOURCE[_champ_name] = 'paste'
+                            # 5. Auto-configure timing source if detected
+                            _ts = _rdata.get('timing_source', {})
+                            _ts_type = (_ts.get('type') or 'none').lower().strip()
+                            if _ts_type and _ts_type != 'none':
+                                _CHAMP_TIMING_SOURCE[_champ_name] = _ts_type
+                                _ts_url = _ts.get('url', '')
+                                _ts_labels = {
+                                    'speedhive': '🌐 Speedhive',
+                                    'tsl': '🇬🇧 TSL Timing',
+                                    'computime': '🕐 Computime',
+                                    'imsa': '🇺🇸 IMSA',
+                                    'natsoft': '🇦🇺 Natsoft',
+                                }
+                                _msgs.append(f"⏱️ Timing: **{_ts_labels.get(_ts_type, _ts_type)}**")
+                                # If Speedhive, try to link the org for easy browsing
+                                if _ts_type == 'speedhive' and _ts_url:
+                                    try:
+                                        from speedhive_client import SpeedhiveClient
+                                        _sh = SpeedhiveClient()
+                                        _eid = _sh.extract_event_id(_ts_url)
+                                        if _eid:
+                                            _org = _sh.discover_org_from_event(int(_eid))
+                                            if _org and _org.get('org_id'):
+                                                _linked = st.session_state.get('sh_linked_orgs', {})
+                                                _linked[_champ_name] = _org
+                                                st.session_state.sh_linked_orgs = _linked
+                                                if settings and settings.is_available:
+                                                    settings.set('speedhive_orgs', _linked)
+                                                _msgs.append(f"🔗 Speedhive org linked")
+                                    except Exception as _sh_err:
+                                        pass
+                            else:
+                                _CHAMP_TIMING_SOURCE[_champ_name] = 'paste'
 
-                        st.success("✅ **All imported!** " + " · ".join(_msgs))
-                        st.toast(f"🚀 {_champ_name} — ready for outreach!")
-                        st.rerun()
+                            # 6. Clear research results so UI moves to outreach
+                            st.session_state.pop('_research_result', None)
+
+                            st.success("✅ **All imported!** " + " · ".join(_msgs))
+                            st.toast(f"🚀 {_champ_name} — ready for outreach!")
+                            st.rerun()
+                        except Exception as _import_err:
+                            st.error(f"❌ Import failed: {_import_err}")
+                            import traceback
+                            st.code(traceback.format_exc())
 
                     st.divider()
 
