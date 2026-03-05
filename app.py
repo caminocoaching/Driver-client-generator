@@ -1906,6 +1906,7 @@ def render_race_outreach(dashboard):
             _circ_dates = _format_round_dates(_selected_round)
             event_name_input = f"{_circ_name} ({_circ_dates})"
             st.session_state['event_name_input'] = event_name_input
+            st.session_state['_ext_circuit'] = event_name_input  # Sync to extension immediately
             st.session_state.global_championship = selected_champ
         else:
             # Non-calendar championship — manual circuit entry
