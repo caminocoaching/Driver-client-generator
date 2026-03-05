@@ -252,6 +252,17 @@ RACE_CALENDARS = {
             {"round": "R2", "name": "Manfeild Grand Finale 🇳🇿", "start": "2026-02-27", "end": "2026-03-01"},
         ]
     },
+    "GTWCA": {
+        "color": "#FF6F00",  # GT Orange
+        "rounds": [
+            {"round": "R1-2", "name": "GT Festival Phillip Island 🇦🇺", "start": "2026-03-27", "end": "2026-03-29"},
+            {"round": "R3-4", "name": "GT Festival The Bend 🇦🇺", "start": "2026-05-08", "end": "2026-05-10"},
+            {"round": "R5-6", "name": "GT Festival Queensland 🇦🇺", "start": "2026-06-12", "end": "2026-06-14"},
+            {"round": "R7-8", "name": "GT Festival Darwin 🇦🇺", "start": "2026-07-24", "end": "2026-07-26"},
+            {"round": "R9-10", "name": "GT Festival Sydney 🇦🇺", "start": "2026-09-18", "end": "2026-09-20"},
+            {"round": "R11-12", "name": "Adelaide Grand Final 🇦🇺", "start": "2026-11-26", "end": "2026-11-29"},
+        ]
+    },
 }
 
 
@@ -1319,6 +1330,7 @@ def render_race_outreach(dashboard):
         "GTRNZ": "paste",
         "TA2 NZ": "paste",
         "NZ Formula Ford": "paste",
+        "GTWCA": "paste",
     }
 
     with st.expander("🔬 **Research New Championship**", expanded=False):
@@ -1672,6 +1684,7 @@ def render_race_outreach(dashboard):
             "GTRNZ": "GT Racing New Zealand (GTRNZ)",
             "TA2 NZ": "TA2 Muscle Car Series New Zealand",
             "NZ Formula Ford": "New Zealand Formula Ford Championship",
+            "GTWCA": "GT World Challenge Australia",
         }
 
         def _format_champ_label(val):
@@ -2646,6 +2659,7 @@ def render_race_outreach(dashboard):
             "DTM": ("dtm.com/results", "https://www.dtm.com/en/results"),
             "CTFROC (Formula Regional Oceania)": ("toyota.co.nz — FR Oceania", "https://www.toyota.co.nz/toyota-racing/castrol-toyota-fr-oceania/"),
             "GTRNZ": ("gtrnz.co.nz/results", "https://www.gtrnz.co.nz/results/"),
+            "GTWCA": ("gt-world-challenge-australia.com", "https://www.gt-world-challenge-australia.com/drivers"),
         }
 
         # Auto-load from pre-built CSV in imports/ folder
@@ -2654,6 +2668,7 @@ def render_race_outreach(dashboard):
             "CTFROC (Formula Regional Oceania)": "ctfroc_2026_drivers.csv",
             "UAE F4": "uae_f4_2026_drivers.csv",
             "GTRNZ": "gtrnz_2026_drivers.csv",
+            "GTWCA": "gtwca_2026_drivers.csv",
         }
         _csv_file = _CSV_DRIVER_FILES.get(selected_champ)
         _csv_path = os.path.join(BASE_DIR, "imports", _csv_file) if _csv_file else None
@@ -5541,6 +5556,7 @@ def _sync_extension_global():
         "GTRNZ": "GT Racing New Zealand (GTRNZ)",
         "TA2 NZ": "TA2 Muscle Car Series New Zealand",
         "NZ Formula Ford": "New Zealand Formula Ford Championship",
+        "GTWCA": "GT World Challenge Australia",
     }
 
     def _js_safe(s):
