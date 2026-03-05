@@ -1786,6 +1786,17 @@ def render_race_outreach(dashboard):
 
             # Use stored index if available (user manually changed it)
             _stored_idx = st.session_state.get('_outreach_round_idx', _default_idx)
+
+            # ── Calendar jump: auto-select round from calendar click ──
+            _cal_jump = st.session_state.pop('_cal_jump_round', None)
+            _cal_venue = st.session_state.pop('_cal_jump_venue', None)
+            if _cal_jump:
+                # Find the round index matching the calendar click
+                for _ji, _jrd in enumerate(rounds):
+                    if _jrd['round'] == _cal_jump:
+                        _stored_idx = _ji
+                        break
+
             try:
                 _stored_idx = int(_stored_idx)
             except (TypeError, ValueError):
@@ -5189,6 +5200,8 @@ def render_calendar_view(dashboard):
     for _series_name, _series_data in RACE_CALENDARS.items():
         _color = _series_data["color"]
         for _rd in _series_data["rounds"]:
+            # Strip flag emojis from venue name for circuit field
+            _venue = _rd['name'].replace('🇺🇸', '').replace('🇦🇺', '').replace('🇳🇿', '').replace('🇬🇧', '').replace('🇦🇪', '').replace('🇩🇪', '').replace('🇦🇹', '').replace('🇮🇹', '').replace('🇪🇸', '').replace('🇫🇷', '').strip()
             events.append({
                 "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
                 "start": _rd["start"],
@@ -5199,13 +5212,21 @@ def render_calendar_view(dashboard):
                 "borderColor": _color,
                 "textColor": "#FFFFFF",
             })
-            # Also add a visible label event on the first day
+            # Also add a visible clickable label event on the first day
             events.append({
                 "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
                 "start": _rd["start"],
                 "allDay": True,
                 "backgroundColor": _color,
                 "borderColor": _color,
+                "extendedProps": {
+                    "race_event": True,
+                    "championship": _series_name,
+                    "round": _rd["round"],
+                    "venue": _venue,
+                    "round_start": _rd["start"],
+                    "round_end": _rd["end"],
+                },
             })
 
     # ── Summary above calendar ──
@@ -5354,28 +5375,50 @@ def render_calendar_view(dashboard):
 
     if has_click and 'calendar_selected_driver' not in st.session_state and not st.session_state.get('_cal_dismissed'):
         event = state["eventClick"]["event"]
-        driver_id = (
-            event.get("extendedProps", {}).get("driver_id") or
-            event.get("extendedProps", {}).get("resourceId") or
-            event.get("resourceId")
-        )
+        ext = event.get("extendedProps", {})
 
-        # Fallback: parse driver name from event title  e.g. "📋 Daryl Hutt [Messaged]"
-        if not driver_id:
-            title = event.get("title", "")
-            import re
-            m = re.match(r'^[^\w]*(.+?)\s*\[', title)
-            if m:
-                driver_id = m.group(1).strip()
-
-        if driver_id:
-            driver_key = driver_id.lower().strip()
-            if dashboard._find_driver(driver_key):
-                st.session_state['calendar_selected_driver'] = driver_key
-                # Must rerun so the EARLY DIALOG CHECK at top of script opens
-                # the dialog. Without this, the page renders blank (calendar
-                # skipped because key is set, but dialog check already passed).
+        # ── RACE EVENT CLICK: Navigate to outreach with championship pre-loaded ──
+        if ext.get("race_event"):
+            _champ = ext.get("championship", "")
+            _round = ext.get("round", "")
+            _venue = ext.get("venue", "")
+            if _champ:
+                # Set championship
+                st.session_state['global_championship'] = _champ
+                # Pre-select the round — store the round info for the outreach page
+                st.session_state['_cal_jump_round'] = _round
+                st.session_state['_cal_jump_venue'] = _venue
+                # Set the circuit/track input
+                st.session_state['_ext_circuit'] = _venue
+                # Clear any stale round selection
+                st.session_state.pop('_outreach_round_idx', None)
+                st.session_state.pop('_outreach_champ', None)
+                # Switch to Race Outreach tab
+                st.session_state['main_nav'] = "🏁 Race Outreach"
+                st.query_params["tab"] = "race"
+                st.toast(f"🏁 Loading {_champ} {_round} — {_venue}")
                 st.rerun()
+        else:
+            # ── DRIVER EVENT CLICK: Open contact card dialog ──
+            driver_id = (
+                ext.get("driver_id") or
+                ext.get("resourceId") or
+                event.get("resourceId")
+            )
+
+            # Fallback: parse driver name from event title  e.g. "📋 Daryl Hutt [Messaged]"
+            if not driver_id:
+                title = event.get("title", "")
+                import re
+                m = re.match(r'^[^\w]*(.+?)\s*\[', title)
+                if m:
+                    driver_id = m.group(1).strip()
+
+            if driver_id:
+                driver_key = driver_id.lower().strip()
+                if dashboard._find_driver(driver_key):
+                    st.session_state['calendar_selected_driver'] = driver_key
+                    st.rerun()
 
     # Clear dismissed flag once eventClick is gone (user navigated away)
     if not has_click and st.session_state.get('_cal_dismissed'):
