@@ -587,6 +587,71 @@ def render_dashboard(dashboard, daily_metrics, drivers):
     s7.metric("Calls", mtd['calls'])
     s8.metric("Sales", mtd['sales'])
 
+    # ── Conversion Funnel ──
+    if mtd['messaged'] > 0:
+        with st.expander("📈 **Conversion Funnel**", expanded=False):
+            funnel_stages = [
+                ("Messaged", mtd['messaged']),
+                ("Replied", mtd['replied']),
+                ("Link Sent", mtd['link_sent']),
+                ("Registered", mtd['registered']),
+                ("Day 1", mtd['day1']),
+                ("Day 2", mtd['day2']),
+                ("Calls", mtd['calls']),
+                ("Sales", mtd['sales']),
+            ]
+            base = mtd['messaged']
+            for i, (label, count) in enumerate(funnel_stages):
+                pct = (count / base * 100) if base > 0 else 0
+                bar_width = max(5, int(pct))
+                prev_label = funnel_stages[i - 1][0] if i > 0 else None
+                prev_count = funnel_stages[i - 1][1] if i > 0 else base
+                step_pct = (count / prev_count * 100) if prev_count > 0 else 0
+                step_str = f"  ({step_pct:.0f}% of {prev_label})" if i > 0 and prev_count > 0 else ""
+
+                color = "#10b981" if pct >= 30 else "#f59e0b" if pct >= 10 else "#ef4444"
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:12px;margin:4px 0;">'
+                    f'<span style="min-width:85px;font-weight:600;color:#ddd;">{label}</span>'
+                    f'<div style="flex:1;background:#1e293b;border-radius:6px;height:24px;overflow:hidden;">'
+                    f'<div style="width:{bar_width}%;background:{color};height:100%;border-radius:6px;'
+                    f'display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:700;color:#fff;">'
+                    f'{count}</div></div>'
+                    f'<span style="min-width:50px;color:#888;font-size:13px;">{pct:.0f}%{step_str}</span>'
+                    f'</div>', unsafe_allow_html=True
+                )
+
+    # ── Overdue Follow-ups ──
+    from ui_components import _driver_needs_follow_up
+    overdue_list = []
+    for d in drivers.values():
+        if d.current_stage in [FunnelStage.CLIENT, FunnelStage.SALE_CLOSED,
+                               FunnelStage.NO_SOCIALS, FunnelStage.NOT_A_FIT,
+                               FunnelStage.DOES_NOT_REPLY]:
+            continue
+        needs, days = _driver_needs_follow_up(d)
+        if needs:
+            overdue_list.append((d, days))
+
+    if overdue_list:
+        overdue_list.sort(key=lambda x: -x[1])  # Most overdue first
+        with st.expander(f"⏰ **{len(overdue_list)} Drivers Need Follow-Up**", expanded=True):
+            for d, days in overdue_list[:15]:
+                name = d.full_name or d.email
+                stage = d.current_stage.value if hasattr(d.current_stage, 'value') else str(d.current_stage)
+                urgency = "🔴" if days >= 3 else "🟡" if days >= 1 else "🟢"
+                day_str = f"{days}d" if days > 0 else "<24h"
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                    f'padding:6px 12px;background:#1e293b;border-radius:6px;margin:3px 0;'
+                    f'border-left:3px solid {"#ef4444" if days >= 3 else "#f59e0b" if days >= 1 else "#10b981"};">'
+                    f'<span style="font-weight:600;color:#eee;">{urgency} {name}</span>'
+                    f'<span style="color:#888;font-size:13px;">{stage} · {day_str} overdue</span>'
+                    f'</div>', unsafe_allow_html=True
+                )
+            if len(overdue_list) > 15:
+                st.caption(f"+ {len(overdue_list) - 15} more")
+
     st.divider()
 
     # DRIVER SEARCH BAR
@@ -1801,22 +1866,63 @@ def render_race_outreach(dashboard):
 
     # ── Chrome extension sync helper ──
     def _render_ext_sync_div():
-        """Inject hidden div for Chrome extension to read circuit/champ/AI message/outreach mode."""
+        """Inject sync bridge for Chrome extension via postMessage.
+
+        Modern Streamlit renders st.markdown(unsafe_allow_html=True) inside
+        isolated iframes that Chrome extension content scripts cannot access.
+        We use st.components.v1.html() instead, which CAN execute JavaScript.
+        The script sends data to the parent window via postMessage, where the
+        content script picks it up.
+        """
         import json as _json_mod
-        _c = (event_name_input or "").replace('"', '&quot;')
+        import streamlit.components.v1 as components
+
+        _c = (event_name_input or "").replace('"', '\\"').replace("'", "\\'")
         _ch_key = st.session_state.get('global_championship', '')
-        _ch = _CHAMP_DISPLAY_NAMES.get(_ch_key, _ch_key).replace('"', '&quot;')
-        _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '&quot;').replace('\n', '\\n')
+        _ch = _CHAMP_DISPLAY_NAMES.get(_ch_key, _ch_key).replace('"', '\\"').replace("'", "\\'")
+        _ai = st.session_state.get('_ext_ai_outreach_msg', '').replace('"', '\\"').replace("'", "\\'").replace('\n', '\\n')
         _ai_dict = st.session_state.get('_ext_ai_messages', {})
-        _ai_json = _json_mod.dumps(_ai_dict).replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
-        _d = st.session_state.get('_ext_current_driver', '').replace('"', '&quot;')
+        _ai_json = _json_mod.dumps(_ai_dict).replace('\\', '\\\\').replace("'", "\\'")
+        _d = st.session_state.get('_ext_current_driver', '').replace('"', '\\"').replace("'", "\\'")
         _mode = "end_of_season" if _is_end_of_season else "race_weekend"
-        st.markdown(
-            f'<div id="ag-active-circuit" data-circuit="{_c}" data-champ="{_ch}" '
-            f'data-driver="{_d}" data-outreach-mode="{_mode}" '
-            f'data-ai-msg="{_ai}" data-ai-messages="{_ai_json}" style="display:none;"></div>',
-            unsafe_allow_html=True
-        )
+
+        # Build a tiny HTML component that sends data to the parent via postMessage.
+        # The content script (content-streamlit.js) listens for 'ag_ext_sync' messages.
+        # Also sets a data attribute on the parent document as fallback for older setups.
+        _sync_html = f"""
+        <script>
+        (function() {{
+            var data = {{
+                type: 'ag_ext_sync',
+                circuit: '{_c}',
+                champ: '{_ch}',
+                driver: '{_d}',
+                outreachMode: '{_mode}',
+                aiMsg: '{_ai}',
+                aiMessages: '{_ai_json}'
+            }};
+            // Send to parent window where content script is listening
+            window.parent.postMessage(data, '*');
+            // Also set on parent document body as fallback
+            try {{
+                var el = window.parent.document.getElementById('ag-active-circuit');
+                if (!el) {{
+                    el = window.parent.document.createElement('div');
+                    el.id = 'ag-active-circuit';
+                    el.style.display = 'none';
+                    window.parent.document.body.appendChild(el);
+                }}
+                el.setAttribute('data-circuit', '{_c}');
+                el.setAttribute('data-champ', '{_ch}');
+                el.setAttribute('data-driver', '{_d}');
+                el.setAttribute('data-outreach-mode', '{_mode}');
+                el.setAttribute('data-ai-msg', '{_ai}');
+                el.setAttribute('data-ai-messages', '{_ai_json}');
+            }} catch(e) {{}}
+        }})();
+        </script>
+        """
+        components.html(_sync_html, height=0, scrolling=False)
 
     # =====================================================================
     # STEP 3: DATA SOURCE — automatic based on championship
@@ -3334,6 +3440,11 @@ def render_race_outreach(dashboard):
                                 st.rerun()
                             else:
                                 st.error("Failed to save.")
+
+    # Store outreach context in session_state so the global sync (at bottom of app)
+    # can send it to the extension even when user is on a different tab
+    st.session_state['_ext_outreach_mode'] = "end_of_season" if _is_end_of_season else "race_weekend"
+    st.session_state['_ext_circuit'] = event_name_input or ""
 
     # Sync circuit/champ/AI message to Chrome extension via hidden div
     # (called after card loop so session_state has the latest AI message)
@@ -5389,3 +5500,86 @@ elif nav == "📅 Calendar":
         st.session_state.pop('_cal_stale_count', None)
     # Always render calendar (dialog floats above it)
     render_calendar_view(dashboard)
+
+# ══════════════════════════════════════════════════════════════════════════
+# GLOBAL EXTENSION SYNC — fires on EVERY page render, not just Race Outreach
+# This ensures the Chrome extension always has the current championship even
+# when the user is on Dashboard, Strategy Calls, Calendar, etc.
+# ══════════════════════════════════════════════════════════════════════════
+def _sync_extension_global():
+    """Send championship + driver + AI data to Chrome extension on every render."""
+    import json as _json_mod
+    import streamlit.components.v1 as components
+
+    _ch_key = st.session_state.get('global_championship', '')
+    if not _ch_key:
+        return  # nothing to sync
+
+    # Championship display name lookup (mirrors the one in render_race_outreach)
+    _CHAMP_NAMES = {
+        "BTCC": "British Touring Car Championship (BTCC)",
+        "British F4": "British Formula 4 Championship",
+        "GB3": "GB3 Championship",
+        "British GT": "British GT Championship",
+        "UAE F4": "UAE Formula 4 Championship",
+        "Porsche Cup GB": "Porsche Carrera Cup Great Britain",
+        "Porsche Cup NA": "Porsche Carrera Cup North America",
+        "Porsche Cup AU": "Porsche Carrera Cup Australia",
+        "Porsche Cup NZ": "Porsche Carrera Cup New Zealand",
+        "Porsche Sprint NA": "Porsche Sprint Challenge North America",
+        "DTM": "Deutsche Tourenwagen Masters (DTM)",
+        "IndyNXT": "IndyNXT Series (Indy Lights)",
+        "GR86 Championship NZ": "Toyota GR86 Championship New Zealand",
+        "CTFROC (Formula Regional Oceania)": "Castrol Toyota Formula Regional Oceania Trophy",
+        "Summerset GT NZ": "Summerset GT Championship New Zealand",
+        "GTRNZ": "GT Racing New Zealand (GTRNZ)",
+        "TA2 NZ": "TA2 Muscle Car Series New Zealand",
+        "NZ Formula Ford": "New Zealand Formula Ford Championship",
+    }
+
+    def _js_safe(s):
+        """Escape a string for safe embedding inside a JS single-quoted string."""
+        return (s or '').replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+
+    _ch = _js_safe(_CHAMP_NAMES.get(_ch_key, _ch_key))
+    _c = _js_safe(st.session_state.get('_ext_circuit', ''))
+    _d = _js_safe(st.session_state.get('_ext_current_driver', ''))
+    _ai = _js_safe(st.session_state.get('_ext_ai_outreach_msg', ''))
+    _ai_dict = st.session_state.get('_ext_ai_messages', {})
+    _ai_json = _js_safe(_json_mod.dumps(_ai_dict))
+    _mode = st.session_state.get('_ext_outreach_mode', 'race_weekend')
+
+    _sync_html = f"""
+    <script>
+    (function() {{
+        var data = {{
+            type: 'ag_ext_sync',
+            circuit: '{_c}',
+            champ: '{_ch}',
+            driver: '{_d}',
+            outreachMode: '{_mode}',
+            aiMsg: '{_ai}',
+            aiMessages: '{_ai_json}'
+        }};
+        window.parent.postMessage(data, '*');
+        try {{
+            var el = window.parent.document.getElementById('ag-active-circuit');
+            if (!el) {{
+                el = window.parent.document.createElement('div');
+                el.id = 'ag-active-circuit';
+                el.style.display = 'none';
+                window.parent.document.body.appendChild(el);
+            }}
+            el.setAttribute('data-circuit', '{_c}');
+            el.setAttribute('data-champ', '{_ch}');
+            el.setAttribute('data-driver', '{_d}');
+            el.setAttribute('data-outreach-mode', '{_mode}');
+            el.setAttribute('data-ai-msg', '{_ai}');
+            el.setAttribute('data-ai-messages', '{_ai_json}');
+        }} catch(e) {{}}
+    }})();
+    </script>
+    """
+    components.html(_sync_html, height=0, scrolling=False)
+
+_sync_extension_global()

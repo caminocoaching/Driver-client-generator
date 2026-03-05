@@ -1,10 +1,9 @@
 // Antigravity Driver Connect — Streamlit Sync Content Script
-// Runs on the Streamlit app page. Watches for the hidden #ag-active-circuit
-// element and syncs its value to chrome.storage.local so the FB/IG content
-// scripts can pre-populate the circuit input in the outreach panel.
+// Runs on the Streamlit app page. Syncs circuit/championship/driver data
+// to chrome.storage.local so the FB/IG content scripts can use it.
 //
-// IMPORTANT: Streamlit renders st.markdown(unsafe_allow_html=True) inside
-// iframes, so we must search inside ALL same-origin iframes on the page.
+// PRIMARY: Listens for postMessage events from st.components.v1.html()
+// FALLBACK: Polls for #ag-active-circuit element in DOM/iframes
 
 (function () {
   'use strict';
@@ -24,6 +23,83 @@
       return false;
     }
   }
+
+  // ── PRIMARY: postMessage listener ──────────────────────────────────────
+  // The Streamlit app sends data via st.components.v1.html() postMessage.
+  // This is the most reliable method — no iframe access issues.
+  window.addEventListener('message', (event) => {
+    if (!event.data || event.data.type !== 'ag_ext_sync') return;
+    if (!isExtensionValid()) return;
+
+    const d = event.data;
+    console.log('[AG] Received postMessage sync:', {
+      circuit: d.circuit,
+      champ: d.champ,
+      driver: d.driver,
+      mode: d.outreachMode
+    });
+
+    try {
+      // Circuit
+      const circuit = (d.circuit || '').trim();
+      if (circuit && circuit !== lastCircuit) {
+        lastCircuit = circuit;
+        chrome.storage.local.set({ ag_circuit: circuit });
+        console.log('[AG] ✅ Circuit synced:', circuit);
+      }
+
+      // Championship
+      const champ = (d.champ || '').trim();
+      if (champ && champ !== lastChamp) {
+        lastChamp = champ;
+        chrome.storage.local.set({ ag_championship: champ });
+        console.log('[AG] ✅ Championship synced:', champ);
+      }
+
+      // Driver
+      const driver = (d.driver || '').trim();
+      if (driver && driver !== lastDriver) {
+        lastDriver = driver;
+        chrome.storage.local.set({ ag_current_driver: driver });
+        console.log('[AG] ✅ Driver synced:', driver);
+      }
+
+      // Outreach mode
+      const outreachMode = (d.outreachMode || '').trim();
+      if (outreachMode && outreachMode !== lastOutreachMode) {
+        lastOutreachMode = outreachMode;
+        chrome.storage.local.set({ ag_outreach_mode: outreachMode });
+        console.log('[AG] ✅ Outreach mode synced:', outreachMode);
+      }
+
+      // AI message (single)
+      const aiMsg = (d.aiMsg || '').trim();
+      if (aiMsg && aiMsg !== lastAiMsg) {
+        lastAiMsg = aiMsg;
+        chrome.storage.local.set({ ag_ai_outreach_msg: aiMsg });
+        console.log('[AG] ✅ AI message synced:', aiMsg.substring(0, 50) + '...');
+      }
+
+      // AI messages dict (JSON)
+      const aiMessagesRaw = (d.aiMessages || '').trim();
+      if (aiMessagesRaw && aiMessagesRaw !== lastAiMessagesJson) {
+        lastAiMessagesJson = aiMessagesRaw;
+        try {
+          const aiMessages = JSON.parse(aiMessagesRaw);
+          chrome.storage.local.set({ ag_ai_messages: aiMessages });
+          console.log('[AG] ✅ AI messages dict synced:', Object.keys(aiMessages).length, 'drivers');
+        } catch (e) {
+          console.warn('[AG] Could not parse AI messages JSON:', e.message);
+        }
+      }
+    } catch (e) {
+      console.warn('[AG] postMessage sync error:', e.message);
+    }
+  });
+
+  // ── FALLBACK: DOM polling ─────────────────────────────────────────────
+  // Searches for #ag-active-circuit in the main document, iframes, and
+  // shadow DOM. This is a backup in case postMessage doesn't fire.
 
   function findElementInFrames(id) {
     // 1. Try the main document first
@@ -50,7 +126,6 @@
       if (host.shadowRoot) {
         const found = host.shadowRoot.getElementById(id);
         if (found) return found;
-        // Also check iframes inside shadow roots
         const shadowIframes = host.shadowRoot.querySelectorAll('iframe');
         for (const sIframe of shadowIframes) {
           try {
@@ -68,7 +143,6 @@
   }
 
   function syncCircuit() {
-    // If extension was reloaded, stop polling — user needs to refresh page
     if (!isExtensionValid()) {
       console.warn('[AG] Extension context invalidated — refresh this tab to reconnect');
       clearInterval(pollInterval);
@@ -77,78 +151,66 @@
 
     try {
       const el = findElementInFrames('ag-active-circuit');
-      if (!el) return;
+      if (!el) return;  // Element not found — postMessage is primary, this is just fallback
 
       const circuit = (el.dataset.circuit || el.getAttribute('data-circuit') || '').trim();
       const champ = (el.dataset.champ || el.getAttribute('data-champ') || '').trim();
 
-      if (circuit) {
-        if (circuit !== lastCircuit) {
-          console.log('[AG] Circuit synced to extension:', circuit);
-          lastCircuit = circuit;
-        }
+      if (circuit && circuit !== lastCircuit) {
+        lastCircuit = circuit;
         chrome.storage.local.set({ ag_circuit: circuit });
+        console.log('[AG] Circuit synced (DOM fallback):', circuit);
       }
-      // Always sync championship to storage — ensures the active Streamlit tab
-      // overrides any stale value from a previous tab/session
-      if (champ) {
-        if (champ !== lastChamp) {
-          console.log('[AG] Championship synced to extension:', champ);
-          lastChamp = champ;
-        }
+      if (champ && champ !== lastChamp) {
+        lastChamp = champ;
         chrome.storage.local.set({ ag_championship: champ });
+        console.log('[AG] Championship synced (DOM fallback):', champ);
       }
 
       const driver = (el.dataset.driver || el.getAttribute('data-driver') || '').trim();
-      if (driver) {
-        if (driver !== lastDriver) {
-          console.log('[AG] Driver synced to extension:', driver);
-          lastDriver = driver;
-        }
+      if (driver && driver !== lastDriver) {
+        lastDriver = driver;
         chrome.storage.local.set({ ag_current_driver: driver });
+        console.log('[AG] Driver synced (DOM fallback):', driver);
       }
 
-      // Sync outreach mode (race_weekend or end_of_season)
       const outreachMode = (el.dataset.outreachMode || el.getAttribute('data-outreach-mode') || '').trim();
       if (outreachMode && outreachMode !== lastOutreachMode) {
         lastOutreachMode = outreachMode;
         chrome.storage.local.set({ ag_outreach_mode: outreachMode });
-        console.log('[AG] Outreach mode synced to extension:', outreachMode);
+        console.log('[AG] Outreach mode synced (DOM fallback):', outreachMode);
       }
 
-      // Sync AI-generated outreach message (single — last card rendered)
       const aiMsg = (el.dataset.aiMsg || el.getAttribute('data-ai-msg') || '').trim();
       if (aiMsg && aiMsg !== lastAiMsg) {
         lastAiMsg = aiMsg;
         chrome.storage.local.set({ ag_ai_outreach_msg: aiMsg });
-        console.log('[AG] AI outreach message synced to extension:', aiMsg.substring(0, 50) + '...');
+        console.log('[AG] AI message synced (DOM fallback):', aiMsg.substring(0, 50) + '...');
       }
 
-      // Sync per-driver AI message dictionary (JSON)
       const aiMessagesRaw = el.dataset.aiMessages || el.getAttribute('data-ai-messages') || '';
       if (aiMessagesRaw && aiMessagesRaw !== lastAiMessagesJson) {
         lastAiMessagesJson = aiMessagesRaw;
         try {
           const aiMessages = JSON.parse(aiMessagesRaw);
           chrome.storage.local.set({ ag_ai_messages: aiMessages });
-          console.log('[AG] AI messages dict synced:', Object.keys(aiMessages).length, 'drivers');
+          console.log('[AG] AI messages dict synced (DOM fallback):', Object.keys(aiMessages).length, 'drivers');
         } catch (e) {
           console.warn('[AG] Could not parse AI messages JSON:', e.message);
         }
       }
     } catch (e) {
-      console.warn('[AG] Sync error (extension may have been reloaded):', e.message);
+      console.warn('[AG] DOM sync error (extension may have been reloaded):', e.message);
     }
   }
 
-  // Streamlit re-renders the DOM frequently via WebSocket updates,
-  // so we poll rather than relying on a single MutationObserver callback.
+  // Poll every 2 seconds as fallback (postMessage is primary)
   const pollInterval = setInterval(syncCircuit, 2000);
 
-  // Also run once on load (with extra delay for Streamlit to render iframes)
+  // Also run once on load
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     setTimeout(syncCircuit, 3000);
-    setTimeout(syncCircuit, 6000);  // Extra retry for slow loads
+    setTimeout(syncCircuit, 6000);
   } else {
     window.addEventListener('load', () => {
       setTimeout(syncCircuit, 3000);
@@ -157,22 +219,17 @@
   }
 
   // ── Save handler: receive params from background.js and inject into URL ──
-  // This triggers a Streamlit rerun using the EXISTING warm session (instant)
-  // instead of opening a cold new tab (15-45 second delay).
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'ag_inject_params') {
       try {
         const currentUrl = new URL(window.location.href);
         const newParams = new URLSearchParams(message.params);
 
-        // Append new params to current URL
         for (const [key, value] of newParams) {
           currentUrl.searchParams.set(key, value);
         }
 
         console.log('[AG] Injecting save params into Streamlit URL:', message.params.substring(0, 80));
-
-        // Navigate — triggers Streamlit rerun with the save handler
         window.location.href = currentUrl.toString();
 
         sendResponse({ success: true });

@@ -287,10 +287,57 @@ function looksLikeUsername(name) {
   if (!n.includes(' ')) return true;
   if (/\d{2,}$/.test(n.replace(/\s/g, ''))) return true;
   if (n.includes('_')) return true;
-  // Reject notification/activity text scraped as names (e.g. "Clint messaged you")
+  // Reject notification/activity text scraped as names
   if (/\b(messaged you|sent you|replied to|liked your|mentioned you|reacted to|is typing|is online|was active|shared a|tagged you|commented on|invited you|accepted your|poked you|search results?)\b/i.test(n)) return true;
+  // Reject UI artifacts that get scraped as names
+  if (/^(verified account|link icon|photo|video|reel|story|suggested|sponsored|people you may know|add friend|message|follow|following|followers|more|see all|view profile|write a comment|like|share|save|report|block|mute|close|send|cancel|done|next|back|search|home|notifications?|settings?|log ?out|sign ?in|sign ?up|create|explore|direct|reels|new post)$/i.test(n)) return true;
+  // Reject own account names
+  if (/^(caminocoaching|thecaminocoach|_caminocoaching|camino.?coaching|camino.?coach)$/i.test(n.replace(/\s/g, ''))) return true;
+  // Reject names that are mostly single-spaced characters (e.g. "K a l l e")
+  // Pattern: at least 3 occurrences of "X " where X is a single char
+  var spacedOut = n.match(/^(.\s){3,}.?$/);
+  if (spacedOut) return true;
   return false;
 }
+
+// ── Clean driver name: strip team/brand suffixes, collapse spaced chars ──
+function cleanDriverName(name) {
+  if (!name) return name;
+  var n = name.trim();
+
+  // Collapse spaced-out characters: "K a l l e R o v a n p e r ä" → "Kalle Rovanperä"
+  // Detect pattern: sequences of single-char + space
+  if (/^(.\s){3,}/.test(n)) {
+    // Try collapsing: split into chars, remove single spaces between single chars
+    var collapsed = '';
+    var i = 0;
+    while (i < n.length) {
+      collapsed += n[i];
+      // If current is a letter and next is space and char after that is a letter
+      if (i + 2 < n.length && n[i + 1] === ' ' && /\S/.test(n[i]) && /\S/.test(n[i + 2])) {
+        // Check if this is part of a spaced-out pattern (not a real word boundary)
+        // Real word boundary: current word has 2+ chars before the space
+        // Spaced-out: single char, space, single char, space...
+        if (i === 0 || n[i - 1] === ' ') {
+          // Skip the space (collapse)
+          i += 2;
+          continue;
+        }
+      }
+      i++;
+    }
+    if (collapsed.length < n.length * 0.7) n = collapsed;
+  }
+
+  // Strip trailing team/brand/page suffixes
+  n = n.replace(/\s+(racing|motorsport|motorsports|race team|racing team|official|page|team)\s*$/i, '');
+
+  // Strip leading/trailing "Jr", "Jnr", "Sr", "II", "III" only if preceded by real name
+  // (keep these — they're part of the name, don't strip)
+
+  return n.trim();
+}
+
 
 // ── Common nicknames map (non-prefix cases) ──
 var NICKNAME_MAP = {
@@ -438,6 +485,45 @@ async function findDriverRecord(driverName, fields, headers) {
     return { records: [data1.records[0]], matchType: 'exact' };
   }
 
+  // ── STEP 1.5: Substring match (social page names) ──
+  // "Cooper Shipman Racing" → find records where Full Name contains "Cooper Shipman"
+  // "Chris White Jnr" → find records where Full Name contains "Chris White"
+  if (nameParts.length >= 2) {
+    // Try first two words as the real name
+    var twoWordName = (nameParts[0] + ' ' + nameParts[1]).toLowerCase().replace(/'/g, "\\'");
+    if (twoWordName.length >= 5) {
+      var data15 = await airtableFetch("FIND('" + twoWordName + "', LOWER({Full Name}))", headers, 5);
+      if (data15.records && data15.records.length > 0) {
+        // If championship provided, prefer same championship
+        if (championship && data15.records.length > 1) {
+          var champSub = data15.records.find(function (r) {
+            return (r.fields['Championship'] || '').toLowerCase() === championship.toLowerCase();
+          });
+          if (champSub) {
+            console.log('[AG] Substring match (champ): "' + driverName + '" -> "' + champSub.fields['Full Name'] + '"');
+            return { records: [champSub], matchType: 'substring+championship' };
+          }
+        }
+        // Take the first match if only one
+        if (data15.records.length === 1) {
+          console.log('[AG] Substring match: "' + driverName + '" -> "' + data15.records[0].fields['Full Name'] + '"');
+          return { records: [data15.records[0]], matchType: 'substring' };
+        }
+      }
+    }
+
+    // Also try: DB record name is a substring of the social name
+    // e.g. social="Zach Blincoe Motorsport", DB="Zach Blincoe"
+    var safeNameForFind = safeName.toLowerCase();
+    var data15b = await airtableFetch("FIND(LOWER({Full Name}), '" + safeNameForFind + "')", headers, 5);
+    if (data15b.records && data15b.records.length > 0) {
+      if (data15b.records.length === 1) {
+        console.log('[AG] Reverse substring: "' + driverName + '" -> "' + data15b.records[0].fields['Full Name'] + '"');
+        return { records: [data15b.records[0]], matchType: 'reverse_substring' };
+      }
+    }
+  }
+
   // ── STEP 2: Also Known As (AKA) ──
   var safeNameLower = safeName.toLowerCase();
   var data2 = await airtableFetch("FIND('" + safeNameLower + "', LOWER({Also Known As}))", headers, 5);
@@ -539,6 +625,21 @@ async function saveDriverToAirtable(driverName, fields) {
   if (!AIRTABLE_URL || typeof AIRTABLE_API_KEY === 'undefined') {
     throw new Error('Airtable config not loaded');
   }
+
+  // ── PRE-CLEAN: reject junk names, clean brand suffixes ──
+  var originalName = driverName;
+  driverName = cleanDriverName(driverName);
+
+  // After cleaning, re-check if it looks like junk
+  if (looksLikeUsername(driverName)) {
+    // If we have a social URL, allow it (URL is a reliable identifier)
+    var hasSocialUrl = !!(fields['IG URL'] || fields['FB URL']);
+    if (!hasSocialUrl) {
+      console.warn('[AG] Rejected junk name after cleaning: "' + originalName + '" → "' + driverName + '"');
+      return { success: false, method: 'rejected_junk', error: 'Name looks like junk: ' + originalName };
+    }
+  }
+
   var headers = {
     'Authorization': 'Bearer ' + AIRTABLE_API_KEY,
     'Content-Type': 'application/json'
@@ -546,6 +647,13 @@ async function saveDriverToAirtable(driverName, fields) {
 
   // Find existing rider using identity resolution
   var result = await findDriverRecord(driverName, fields, headers);
+
+  // If no match and name was cleaned, try the original too
+  if ((!result.records || result.records.length === 0) && driverName !== originalName) {
+    console.log('[AG] No match for cleaned "' + driverName + '", trying original "' + originalName + '"');
+    result = await findDriverRecord(originalName, fields, headers);
+  }
+
   var searchData = result;
 
   // Always set Last Activity
@@ -707,6 +815,15 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       }
       if (circuit) fields['Championship'] = circuit;
       saveDriverToAirtable(driver, fields).then(function (r) {
+        // Track stage changes for analytics
+        var stageEventMap = {
+          'Replied': 'replied', 'Link Sent': 'link_sent',
+          'Blueprint Link Sent': 'link_sent', 'Strategy Call Booked': 'call_booked',
+          'Client': 'client', 'Sale Closed': 'client'
+        };
+        if (stageEventMap[stage]) {
+          trackOutreachEvent(stageEventMap[stage], { platform: socialUrl && socialUrl.includes('instagram') ? 'IG' : 'FB' });
+        }
         sendResponse(r);
       }).catch(function (err) {
         console.warn('[AG] Direct save failed:', err.message);
@@ -761,6 +878,12 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       if (championship3) fields3['Championship'] = championship3;
       console.log('[AG] saveOutreach socialUrl:', socialUrl3 || '(empty)', 'fields:', JSON.stringify(fields3));
       saveDriverToAirtable(rider3, fields3).then(function (r) {
+        // Track for analytics
+        trackOutreachEvent('messaged', {
+          template: template || 'unknown',
+          championship: championship3 || '',
+          platform: message.platform || (socialUrl3 && socialUrl3.includes('instagram') ? 'IG' : 'FB')
+        });
         sendResponse(r);
       }).catch(function (err) {
         console.warn('[AG] Direct outreach save failed:', err.message);
@@ -941,4 +1064,244 @@ chrome.runtime.onInstalled.addListener(function () {
       }
     }
   });
+
+  // Set up overdue notification alarm on install/update
+  chrome.alarms.create('ag_overdue_check', { delayInMinutes: 2, periodInMinutes: 30 });
 });
+
+// ══════════════════════════════════════════════════════════
+// ██  OVERDUE DRIVER NOTIFICATIONS
+// ══════════════════════════════════════════════════════════
+// Checks Airtable every 30 minutes for drivers stuck at a stage
+// beyond the expected follow-up window. Shows a Chrome notification
+// so you never miss a follow-up opportunity.
+
+// Stage → date field + max hours before overdue
+var OVERDUE_CONFIG = {
+  'Messaged': { dateField: 'Date Messaged', hours: 72 },
+  'Replied': { dateField: 'Date Replied', hours: 48 },
+  'Link Sent': { dateField: 'Date Link Sent', hours: 24 },
+  'Blueprint Link Sent': { dateField: 'Date Link Sent', hours: 24 },
+  'Race Weekend': { dateField: 'Date Race Review', hours: 48 },
+  'Race Review Complete': { dateField: 'Date Race Review', hours: 24 },
+  'Registered': { dateField: 'Date Blueprint Started', hours: 24 },
+  'Blueprint Started': { dateField: 'Date Blueprint Started', hours: 24 },
+  'Day 1 Complete': { dateField: 'Date Day 1 Assessment ', hours: 24 },
+  'Day 2 Complete': { dateField: 'Date Day 2 Assessment ', hours: 24 }
+};
+
+async function checkOverdueDrivers() {
+  if (!AIRTABLE_URL || typeof AIRTABLE_API_KEY === 'undefined') return;
+
+  var headers = {
+    'Authorization': 'Bearer ' + AIRTABLE_API_KEY,
+    'Content-Type': 'application/json'
+  };
+
+  var overdueDrivers = [];
+  var now = Date.now();
+
+  // Check each stage that has a follow-up window
+  for (var stage in OVERDUE_CONFIG) {
+    var config = OVERDUE_CONFIG[stage];
+    var windowMs = config.hours * 3600 * 1000;
+
+    // Query Airtable for drivers at this stage
+    var formula = "{Stage} = '" + stage + "'";
+    try {
+      var url = AIRTABLE_URL + '?filterByFormula=' + encodeURIComponent(formula)
+        + '&fields[]=' + encodeURIComponent('Full Name')
+        + '&fields[]=' + encodeURIComponent('First Name')
+        + '&fields[]=' + encodeURIComponent('Last Name')
+        + '&fields[]=' + encodeURIComponent(config.dateField)
+        + '&fields[]=' + encodeURIComponent('Last Activity')
+        + '&fields[]=' + encodeURIComponent('Notes')
+        + '&maxRecords=50';
+      var res = await fetch(url, { headers: headers });
+      if (!res.ok) continue;
+      var data = await res.json();
+      if (!data.records || !data.records.length) continue;
+
+      for (var i = 0; i < data.records.length; i++) {
+        var r = data.records[i];
+        var fields = r.fields || {};
+        var dateStr = fields[config.dateField] || fields['Last Activity'];
+        if (!dateStr) continue;
+        var stageDate = new Date(dateStr).getTime();
+        if (isNaN(stageDate)) continue;
+
+        var elapsed = now - stageDate;
+        if (elapsed > windowMs) {
+          // Check if a follow-up was recently sent (notes contain ✅ FU_SENT or 📤)
+          var notes = fields['Notes'] || '';
+          var recentFU = false;
+          var fuMatches = notes.match(/\[(\d{2} \w{3} \d{2}:\d{2}) [✅📤]\]/g);
+          if (fuMatches && fuMatches.length > 0) {
+            try {
+              var lastTs = fuMatches[fuMatches.length - 1].match(/(\d{2} \w{3} \d{2}:\d{2})/);
+              if (lastTs) {
+                var parsed = new Date(lastTs[1] + ' ' + new Date().getFullYear());
+                if (now - parsed.getTime() < 48 * 3600 * 1000) recentFU = true;
+              }
+            } catch (e) { /* ignore */ }
+          }
+
+          if (!recentFU) {
+            var name = fields['Full Name'] || ((fields['First Name'] || '') + ' ' + (fields['Last Name'] || '')).trim();
+            var days = Math.floor(elapsed / (24 * 3600 * 1000));
+            overdueDrivers.push({ name: name, stage: stage, days: days });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[AG] Overdue check failed for stage ' + stage + ':', e.message);
+    }
+  }
+
+  // Store overdue count for badge/popup
+  chrome.storage.local.set({
+    ag_overdue_count: overdueDrivers.length,
+    ag_overdue_drivers: overdueDrivers.slice(0, 20), // Keep top 20
+    ag_overdue_checked: new Date().toISOString()
+  });
+
+  // Show notification if there are overdue drivers (max once per 2 hours per count)
+  if (overdueDrivers.length > 0) {
+    var lastNotified = (await chrome.storage.local.get('ag_last_overdue_notify'))['ag_last_overdue_notify'] || 0;
+    var lastCount = (await chrome.storage.local.get('ag_last_overdue_count'))['ag_last_overdue_count'] || 0;
+
+    // Only notify if count changed or 2+ hours since last notification
+    if (overdueDrivers.length !== lastCount || (now - lastNotified) > 2 * 3600 * 1000) {
+      var topNames = overdueDrivers.slice(0, 3).map(function (d) {
+        return d.name + ' (' + d.days + 'd at ' + d.stage + ')';
+      });
+      var body = topNames.join('\n');
+      if (overdueDrivers.length > 3) {
+        body += '\n+ ' + (overdueDrivers.length - 3) + ' more';
+      }
+
+      chrome.notifications.create('ag_overdue_' + now, {
+        type: 'basic',
+        iconUrl: 'icon128.png',
+        title: '⏰ ' + overdueDrivers.length + ' driver' + (overdueDrivers.length > 1 ? 's' : '') + ' need follow-up',
+        message: body,
+        priority: 2,
+        requireInteraction: true
+      });
+
+      chrome.storage.local.set({
+        ag_last_overdue_notify: now,
+        ag_last_overdue_count: overdueDrivers.length
+      });
+
+      console.log('[AG] 🔔 Overdue notification: ' + overdueDrivers.length + ' drivers need follow-up');
+    }
+  }
+
+  // Update badge with overdue count
+  if (overdueDrivers.length > 0) {
+    var retryData = await chrome.storage.local.get('ag_retry_queue');
+    var retryCount = ((retryData || {})['ag_retry_queue'] || []).length;
+    if (retryCount === 0) {
+      // Only show overdue badge if no pending saves (those take priority)
+      chrome.action.setBadgeText({ text: String(overdueDrivers.length) });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF8800' }); // Orange for overdue
+    }
+  }
+
+  console.log('[AG] Overdue check complete: ' + overdueDrivers.length + ' overdue');
+}
+
+// Click notification → open Streamlit dashboard
+chrome.notifications.onClicked.addListener(function (notificationId) {
+  if (notificationId.startsWith('ag_overdue_')) {
+    chrome.tabs.create({ url: APP_URL, active: true });
+    chrome.notifications.clear(notificationId);
+  }
+});
+
+// Wire up the alarm
+chrome.alarms.onAlarm.addListener(function (alarm) {
+  if (alarm.name === 'ag_overdue_check') checkOverdueDrivers();
+});
+
+// Also ensure the alarm exists on every startup
+chrome.alarms.get('ag_overdue_check', function (existing) {
+  if (!existing) {
+    chrome.alarms.create('ag_overdue_check', { delayInMinutes: 2, periodInMinutes: 30 });
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// ██  OUTREACH ANALYTICS TRACKER
+// ══════════════════════════════════════════════════════════
+// Records every outreach action for conversion tracking.
+// Stored in chrome.storage.local and synced to the dashboard.
+
+async function trackOutreachEvent(eventType, data) {
+  try {
+    var stats = (await chrome.storage.local.get('ag_outreach_stats'))['ag_outreach_stats'] || {
+      total_messaged: 0,
+      total_replied: 0,
+      total_link_sent: 0,
+      total_call_booked: 0,
+      total_clients: 0,
+      by_template: {},
+      by_championship: {},
+      by_platform: {},
+      daily: {}
+    };
+
+    var today = new Date().toISOString().split('T')[0];
+    if (!stats.daily[today]) {
+      stats.daily[today] = { messaged: 0, replied: 0, link_sent: 0 };
+    }
+
+    switch (eventType) {
+      case 'messaged':
+        stats.total_messaged++;
+        stats.daily[today].messaged++;
+        break;
+      case 'replied':
+        stats.total_replied++;
+        stats.daily[today].replied++;
+        break;
+      case 'link_sent':
+        stats.total_link_sent++;
+        stats.daily[today].link_sent++;
+        break;
+      case 'call_booked':
+        stats.total_call_booked++;
+        break;
+      case 'client':
+        stats.total_clients++;
+        break;
+    }
+
+    // Track by template
+    if (data.template) {
+      stats.by_template[data.template] = (stats.by_template[data.template] || 0) + 1;
+    }
+
+    // Track by championship
+    if (data.championship) {
+      stats.by_championship[data.championship] = (stats.by_championship[data.championship] || 0) + 1;
+    }
+
+    // Track by platform
+    if (data.platform) {
+      stats.by_platform[data.platform] = (stats.by_platform[data.platform] || 0) + 1;
+    }
+
+    // Prune daily data older than 30 days
+    var cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    for (var day in stats.daily) {
+      if (day < cutoff) delete stats.daily[day];
+    }
+
+    await chrome.storage.local.set({ ag_outreach_stats: stats });
+  } catch (e) {
+    console.warn('[AG] Stats tracking error:', e.message);
+  }
+}
+

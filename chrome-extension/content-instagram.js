@@ -45,6 +45,7 @@
   let currentName = null;
   let pipelineDriverName = null;  // Real name from pipeline app (via #ag_driver= hash or chrome.storage)
   let _nameSetByApp = false;     // True if pipelineDriverName was set by the app (not DB lookup)
+  let _nameSetByHash = false;    // True ONLY if name was set via #ag_driver= hash (intentional navigation)
   let panelOpen = false;
   let observer = null;
   let autoSavedUrl = null;  // Track which URL we already auto-saved
@@ -58,6 +59,7 @@
       if (name && name.length > 1) {
         pipelineDriverName = name;
         _nameSetByApp = true;
+        _nameSetByHash = true;  // Intentional navigation from the app
         chrome.storage.local.set({ ag_current_driver: name });
         // Clean the hash so it doesn't persist on navigation
         history.replaceState(null, '', window.location.href.split('#')[0]);
@@ -72,9 +74,23 @@
   // between profiles.
 
   // Listen for driver name changes from the Streamlit app
+  // IMPORTANT: Only adopt storage changes when they make sense for the current page.
+  // The Streamlit app syncs ag_current_driver every 2 seconds — if the user is browsing
+  // a different IG profile, we must NOT override the page's detected name.
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.ag_current_driver && changes.ag_current_driver.newValue) {
-      pipelineDriverName = changes.ag_current_driver.newValue;
+      const newName = changes.ag_current_driver.newValue;
+      // On profile pages: ignore passive storage sync — page name is authoritative
+      if (isProfilePage() && !_nameSetByHash) {
+        console.log('[AG] Ignoring storage sync on profile page — page name is authoritative. Ignored:', newName);
+        return;
+      }
+      // On DM pages: also ignore passive storage sync — chat name is authoritative
+      if (isDMPage()) {
+        console.log('[AG] Ignoring storage sync on DM page — chat name is authoritative. Ignored:', newName);
+        return;
+      }
+      pipelineDriverName = newName;
       _nameSetByApp = true;
     }
   });
@@ -221,6 +237,27 @@
   function smartNameClean(name) {
     if (!name) return name;
     var n = name.trim();
+
+    // Reject known UI artifacts
+    if (/^(verified account|link icon|photo|video|reel|story|sponsored|suggested)$/i.test(n)) return '';
+
+    // Collapse spaced-out characters: "K a l l e R o v a n p e r ä" → "Kalle Rovanperä"
+    if (/^(.\s){3,}/.test(n)) {
+      var collapsed = '';
+      var i = 0;
+      while (i < n.length) {
+        collapsed += n[i];
+        if (i + 2 < n.length && n[i + 1] === ' ' && /\S/.test(n[i]) && /\S/.test(n[i + 2])) {
+          if (i === 0 || n[i - 1] === ' ') { i += 2; continue; }
+        }
+        i++;
+      }
+      if (collapsed.length < n.length * 0.7) n = collapsed;
+    }
+
+    // Strip trailing team/brand suffixes
+    n = n.replace(/\s+(racing|motorsport|motorsports|race team|racing team|official|page|team)\s*$/i, '').trim();
+
     // Already has a space? It's a real name — just return it
     if (n.includes(' ')) return n;
     // CamelCase split: "CameronHill" → "Cameron Hill"
@@ -885,10 +922,9 @@
 
     // ── PROFILE PAGE: name from header or page title ──
     if (isProfilePage()) {
-      // Pipeline driver name — ALWAYS preferred on profile pages.
-      // The pipeline app passes the real name via #ag_driver= hash when user
-      // clicks search buttons. This avoids picking up usernames like "jsmith_91".
-      if (pipelineDriverName) return cleanName(pipelineDriverName);
+      // Pipeline driver name — preferred on profile pages ONLY if set via hash (intentional navigation).
+      // Passive storage sync names are ignored to prevent stale names from overriding the page.
+      if (pipelineDriverName && _nameSetByHash) return cleanName(pipelineDriverName);
 
       // IG profile pages show the display name in a header/span near the top
       // IMPORTANT: real names have spaces ("Scott Nicholson"), usernames don't ("scottnicholson39")
@@ -1311,11 +1347,61 @@
     header.innerHTML = `
       <h2>🏁 ${currentName || 'Rider'}</h2>
       <p class="ag-subtitle">Pick a reply template below</p>
+      <div id="ag-champ-badge" style="background:#1e3a5f;color:#60a5fa;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;margin:4px 0 6px;display:none;text-align:center;border:1px solid #2563eb44;">
+        🔒 <span id="ag-champ-label">—</span>
+      </div>
       <div class="ag-circuit-row">
         <label>Circuit / Track:</label>
         <input type="text" id="ag-circuit-input" placeholder="e.g. Brands Hatch" autocomplete="off" />
       </div>
     `;
+
+    // Pre-populate circuit from storage, and keep it in sync
+    const circuitEl = header.querySelector('#ag-circuit-input');
+    if (circuitEl) {
+      chrome.storage.local.get('ag_circuit', (data) => {
+        if (data.ag_circuit) circuitEl.value = data.ag_circuit;
+      });
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.ag_circuit && changes.ag_circuit.newValue) {
+          circuitEl.value = changes.ag_circuit.newValue;
+        }
+      });
+      circuitEl.addEventListener('input', () => {
+        const val = circuitEl.value.trim();
+        if (val) chrome.storage.local.set({ ag_circuit: val });
+      });
+    }
+
+    // Championship lock badge
+    const champBadge = header.querySelector('#ag-champ-badge');
+    const champLabel = header.querySelector('#ag-champ-label');
+    function updateChampBadge(champ) {
+      if (champBadge && champLabel && champ) {
+        champLabel.textContent = champ;
+        champBadge.style.display = 'block';
+        console.log('[AG] Championship badge displayed:', champ);
+      } else if (champBadge) {
+        champBadge.style.display = 'none';
+        console.log('[AG] Championship badge hidden — empty value');
+      }
+    }
+    // Read ALL ag_ keys to debug sync status
+    chrome.storage.local.get(null, (allData) => {
+      const agKeys = Object.keys(allData).filter(k => k.startsWith('ag_'));
+      console.log('[AG] 🔍 Storage debug — all ag_ keys:', agKeys);
+      console.log('[AG] 🔍 ag_championship =', JSON.stringify(allData.ag_championship));
+      console.log('[AG] 🔍 ag_circuit =', JSON.stringify(allData.ag_circuit));
+      console.log('[AG] 🔍 ag_current_driver =', JSON.stringify(allData.ag_current_driver));
+      console.log('[AG] 🔍 ag_outreach_mode =', JSON.stringify(allData.ag_outreach_mode));
+      updateChampBadge(allData.ag_championship || '');
+    });
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.ag_championship && changes.ag_championship.newValue) {
+        updateChampBadge(changes.ag_championship.newValue);
+        console.log('[AG] Championship badge updated:', changes.ag_championship.newValue);
+      }
+    });
 
     // ── DATABASE STATUS BANNER (URL lookup) ──
     const dbBanner = document.createElement('div');
@@ -1446,17 +1532,6 @@
       dbLookupDone = true;
     }
 
-    // Pre-populate circuit from storage, and save on change
-    const circuitEl = header.querySelector('#ag-circuit-input');
-    if (circuitEl) {
-      chrome.storage.local.get('ag_circuit', (data) => {
-        if (data.ag_circuit && !circuitEl.value) circuitEl.value = data.ag_circuit;
-      });
-      circuitEl.addEventListener('input', () => {
-        const val = circuitEl.value.trim();
-        if (val) chrome.storage.local.set({ ag_circuit: val });
-      });
-    }
 
     const body = document.createElement('div');
     body.className = 'ag-panel-body';
@@ -1533,17 +1608,27 @@
           const driverName = pipelineDriverName || (data && data.ag_current_driver) || currentName || '';
           const msgs = (data && data.ag_ai_messages) || {};
 
-          // Try exact match, then partial match
           let template = msgs[driverName];
+
+          // ── Fuzzy matching cascade if exact match fails ──
           if (!template && driverName) {
-            const lower = driverName.toLowerCase();
+            const lower = driverName.toLowerCase().trim();
+            const parts = lower.split(/\s+/);
+            const firstName = parts[0] || '';
+            const lastName = parts.slice(1).join(' ') || '';
+
             for (const [key, val] of Object.entries(msgs)) {
-              if (key.toLowerCase() === lower ||
-                key.toLowerCase().includes(lower) ||
-                lower.includes(key.toLowerCase())) {
-                template = val;
-                break;
-              }
+              const keyLow = key.toLowerCase().trim();
+              if (keyLow === lower) { template = val; break; }
+              if (keyLow.includes(lower) || lower.includes(keyLow)) { template = val; break; }
+              const keyParts = keyLow.split(/\s+/);
+              const keyFirst = keyParts[0] || '';
+              const keyLast = keyParts.slice(1).join(' ') || '';
+              if (lastName && keyLast === lastName && (
+                keyFirst.startsWith(firstName) || firstName.startsWith(keyFirst)
+              )) { template = val; break; }
+              if (firstName && lastName &&
+                keyFirst === lastName && keyLast === firstName) { template = val; break; }
             }
           }
 
@@ -1967,27 +2052,27 @@
     setInterval(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;
-        // Reset auto-save tracking on navigation
+        // Reset ALL stale state on navigation — prevents wrong driver showing
         autoSavedUrl = null;
         dbLookupDone = false;
         // Check for new #ag_driver= hash on navigation (sets pipelineDriverName if present)
+        const hadHash = _nameSetByHash;
+        pipelineDriverName = null;
+        _nameSetByApp = false;
+        _nameSetByHash = false;
         checkHashForRiderName();
-        if (isDMPage()) {
-          // Entering DMs — KEEP pipelineDriverName! The user likely just came
-          // from the pipeline and is about to message this person. The scraped
-          // IG username (e.g. "cameronhill") is unreliable for Airtable lookups
-          // but the pipeline name ("Cameron Hill") is accurate.
-          console.log('[AG] Entered DM — keeping pipelineDriverName:', pipelineDriverName);
-        } else if (!pipelineDriverName) {
-          // Navigating to a new profile without hash — clear stale pipeline name
-          // to prevent wrong name showing when browsing profiles manually
+        if (isDMPage() && _nameSetByHash) {
+          // Entering DMs with hash — user came from pipeline, keep the name
+          console.log('[AG] Entered DM with hash — keeping pipelineDriverName:', pipelineDriverName);
+        } else if (isDMPage()) {
+          // Entering DMs without hash — clear pipeline name, use chat name
           pipelineDriverName = null;
-          _nameSetByApp = false;
-          // Auto-save URL on profile/search page navigation
-          setTimeout(() => autoSaveSocialUrl(), 2000);
+          console.log('[AG] Entered DM without hash — using chat name');
         } else {
-          // Has pipelineDriverName from hash — Auto-save URL
-          setTimeout(() => autoSaveSocialUrl(), 2000);
+          // Profile/other page — auto-save URL if hash was set
+          if (_nameSetByHash) {
+            setTimeout(() => autoSaveSocialUrl(), 2000);
+          }
         }
         setTimeout(updateButton, 800);
         setTimeout(updateButton, 2000);
