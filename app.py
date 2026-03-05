@@ -1463,16 +1463,30 @@ def render_race_outreach(dashboard):
                         # They'll appear in the driver list below, ready to search & message
                         if _has_drivers:
                             _driver_names = []
+                            _csv_lines = ["first_name,last_name"]
                             for d in _rdata.get('drivers', []):
                                 _first = d.get('first_name', '').strip()
                                 _last = d.get('last_name', '').strip()
                                 if _first and _last:
                                     _driver_names.append(f"{_first} {_last}")
+                                    # Escape commas in names for CSV
+                                    _csv_lines.append(f"{_first.replace(',','')},{_last.replace(',','')}")
                             if _driver_names:
                                 # Store names for the outreach list to pick up
                                 st.session_state['_research_driver_names'] = _driver_names
                                 st.session_state['_run_analysis_on_update'] = True
                                 _msgs.append(f"🏎️ {len(_driver_names)} drivers queued for outreach")
+                                # Also save to CSV for auto-load on future visits
+                                _csv_slug = _champ_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
+                                _csv_filename = f"{_csv_slug}_drivers.csv"
+                                _csv_path = os.path.join(BASE_DIR, "imports", _csv_filename)
+                                os.makedirs(os.path.join(BASE_DIR, "imports"), exist_ok=True)
+                                with open(_csv_path, 'w') as _csvf:
+                                    _csvf.write('\n'.join(_csv_lines))
+                                _CSV_DRIVER_FILES_DYNAMIC = st.session_state.get('_dynamic_csv_files', {})
+                                _CSV_DRIVER_FILES_DYNAMIC[_champ_name] = _csv_filename
+                                st.session_state['_dynamic_csv_files'] = _CSV_DRIVER_FILES_DYNAMIC
+                                _msgs.append(f"💾 Drivers saved to `imports/{_csv_filename}`")
                         # 3. Auto-select championship — reset widget keys so UI updates
                         st.session_state.global_championship = _champ_name
                         st.session_state.pop('_outreach_champ', None)      # Force selectbox to re-read from global_championship
@@ -1594,7 +1608,23 @@ def render_race_outreach(dashboard):
                         if _driver_names:
                             st.session_state['_research_driver_names'] = _driver_names
                             st.session_state['_run_analysis_on_update'] = True
-                            st.success(f"✅ {len(_driver_names)} drivers queued for outreach!")
+                            # Save to CSV for auto-load on future visits
+                            _csv_slug = _champ_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
+                            _csv_filename = f"{_csv_slug}_drivers.csv"
+                            _csv_path_drv = os.path.join(BASE_DIR, "imports", _csv_filename)
+                            os.makedirs(os.path.join(BASE_DIR, "imports"), exist_ok=True)
+                            _csv_lines_drv = ["first_name,last_name"]
+                            for d in _drivers:
+                                _f = d.get('first_name', '').strip().replace(',', '')
+                                _l = d.get('last_name', '').strip().replace(',', '')
+                                if _f and _l:
+                                    _csv_lines_drv.append(f"{_f},{_l}")
+                            with open(_csv_path_drv, 'w') as _csvf:
+                                _csvf.write('\n'.join(_csv_lines_drv))
+                            _dyn = st.session_state.get('_dynamic_csv_files', {})
+                            _dyn[_champ_name] = _csv_filename
+                            st.session_state['_dynamic_csv_files'] = _dyn
+                            st.success(f"✅ {len(_driver_names)} drivers queued & saved to `imports/{_csv_filename}`!")
                             st.toast(f"⚡ {len(_driver_names)} drivers → outreach list")
                             st.rerun()
 
@@ -2681,7 +2711,15 @@ def render_race_outreach(dashboard):
             "GTRNZ": "gtrnz_2026_drivers.csv",
             "GTWCA": "gtwca_2026_drivers.csv",
         }
+        # Merge any dynamically created CSV files from researcher imports
+        _CSV_DRIVER_FILES.update(st.session_state.get('_dynamic_csv_files', {}))
         _csv_file = _CSV_DRIVER_FILES.get(selected_champ)
+        # Fallback: check if a CSV exists with the championship slug name
+        if not _csv_file:
+            _slug = selected_champ.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
+            _candidate = f"{_slug}_drivers.csv"
+            if os.path.exists(os.path.join(BASE_DIR, "imports", _candidate)):
+                _csv_file = _candidate
         _csv_path = os.path.join(BASE_DIR, "imports", _csv_file) if _csv_file else None
         _csv_names = []
         if _csv_path and os.path.exists(_csv_path):
