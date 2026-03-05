@@ -5202,23 +5202,20 @@ def render_calendar_view(dashboard):
         for _rd in _series_data["rounds"]:
             # Strip flag emojis from venue name for circuit field
             _venue = _rd['name'].replace('🇺🇸', '').replace('🇦🇺', '').replace('🇳🇿', '').replace('🇬🇧', '').replace('🇦🇪', '').replace('🇩🇪', '').replace('🇦🇹', '').replace('🇮🇹', '').replace('🇪🇸', '').replace('🇫🇷', '').strip()
+            # FullCalendar 'end' is exclusive — add 1 day so the pill covers
+            # the final day (e.g. Fri-Sun event needs end = Monday)
+            from datetime import date as _dt_date
+            _end_inclusive = _dt_date.fromisoformat(_rd["end"])
+            _end_exclusive = (_end_inclusive + timedelta(days=1)).isoformat()
+            # Visible clickable multi-day pill
             events.append({
                 "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
                 "start": _rd["start"],
-                "end": _rd["end"],       # end is exclusive in FullCalendar
+                "end": _end_exclusive,
                 "allDay": True,
-                "display": "background",  # renders as subtle background highlight
                 "backgroundColor": _color,
                 "borderColor": _color,
                 "textColor": "#FFFFFF",
-            })
-            # Also add a visible clickable label event on the first day
-            events.append({
-                "title": f"🏁 {_series_name} {_rd['round']} — {_rd['name']}",
-                "start": _rd["start"],
-                "allDay": True,
-                "backgroundColor": _color,
-                "borderColor": _color,
                 "extendedProps": {
                     "race_event": True,
                     "championship": _series_name,
