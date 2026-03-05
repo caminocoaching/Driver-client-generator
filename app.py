@@ -5444,8 +5444,9 @@ def render_calendar_view(dashboard):
                 # Clear any stale round selection
                 st.session_state.pop('_outreach_round_idx', None)
                 st.session_state.pop('_outreach_champ', None)
-                # Switch to Race Outreach tab
-                st.session_state['main_nav'] = "🏁 Race Outreach"
+                # Switch to Race Outreach tab (use _pending_nav because
+                # main_nav widget is already rendered at this point)
+                st.session_state['_pending_nav'] = "🏁 Race Outreach"
                 st.query_params["tab"] = "race"
                 st.toast(f"🏁 Loading {_champ} {_round} — {_venue}")
                 st.rerun()
@@ -5507,6 +5508,11 @@ if "main_nav" not in st.session_state:
         elif tab_val == "strategy": st.session_state.main_nav = "📞 Strategy Calls"
         elif tab_val == "calendar": st.session_state.main_nav = "📅 Calendar"
         elif tab_val == "admin": st.session_state.main_nav = "⚙️ Admin"
+
+# Apply pending navigation (from calendar click or other deferred nav)
+# This MUST happen BEFORE the radio widget renders
+if '_pending_nav' in st.session_state:
+    st.session_state.main_nav = st.session_state.pop('_pending_nav')
 
 # NAVIGATION BAR
 nav = st.radio(
