@@ -1449,6 +1449,7 @@ def render_race_outreach(dashboard):
                     if st.button(_import_label, key="research_import_all", type="primary", use_container_width=True):
                         try:
                             _msgs = []
+                            _driver_names = []  # Track researcher-found drivers for Computime fallback
                             # 1. Add calendar
                             if _has_cal:
                                 from championship_researcher import research_to_calendar_dict
@@ -1549,6 +1550,42 @@ def render_race_outreach(dashboard):
                                                 _msgs.append(f"🔗 Speedhive org linked")
                                     except Exception as _sh_err:
                                         pass
+                                # If Computime, auto-fetch drivers from timing data
+                                if _ts_type == 'computime' and _ts_url:
+                                    try:
+                                        from computime_client import ComputimeClient
+                                        _ct = ComputimeClient()
+                                        _ct_mid = ComputimeClient.extract_meet_id(_ts_url)
+                                        if _ct_mid:
+                                            # Store URL for outreach page auto-fill
+                                            st.session_state['computime_url_input'] = _ts_url
+                                            # Fetch drivers from Computime
+                                            _ct_names, _ct_results, _ct_info = _ct.extract_driver_results(_ct_mid)
+                                            if _ct_names and not _driver_names:
+                                                # Only use Computime drivers if researcher didn't find any
+                                                st.session_state['_research_driver_names'] = _ct_names
+                                                st.session_state['_run_analysis_on_update'] = True
+                                                # Save to CSV
+                                                _csv_slug2 = _champ_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_')
+                                                _csv_fn2 = f"{_csv_slug2}_drivers.csv"
+                                                _csv_p2 = os.path.join(BASE_DIR, "imports", _csv_fn2)
+                                                os.makedirs(os.path.join(BASE_DIR, "imports"), exist_ok=True)
+                                                _csv_l2 = ["first_name,last_name"]
+                                                for _ctn in _ct_names:
+                                                    _parts = _ctn.strip().split(' ', 1)
+                                                    if len(_parts) == 2:
+                                                        _csv_l2.append(f"{_parts[0]},{_parts[1]}")
+                                                with open(_csv_p2, 'w') as _cf2:
+                                                    _cf2.write('\n'.join(_csv_l2))
+                                                _dyn2 = st.session_state.get('_dynamic_csv_files', {})
+                                                _dyn2[_champ_name] = _csv_fn2
+                                                st.session_state['_dynamic_csv_files'] = _dyn2
+                                                _msgs.append(f"🏎️ {len(_ct_names)} drivers from Computime timing")
+                                                _msgs.append(f"💾 Saved to `imports/{_csv_fn2}`")
+                                            elif _ct_names:
+                                                _msgs.append(f"📊 Computime has {len(_ct_names)} drivers (using researcher list)")
+                                    except Exception as _ct_err:
+                                        _msgs.append(f"⚠️ Computime fetch failed: {_ct_err}")
                             else:
                                 _CHAMP_TIMING_SOURCE[_champ_name] = 'paste'
 
