@@ -394,10 +394,13 @@ class ChampionshipResearcher:
             raw_html = ""
 
         # Find related page URLs from the HTML
+        # Match against both URL paths AND link text content
         related_keywords = [
-            'calendar', 'results', 'drivers', 'entry-list', 'entry_list',
+            'calendar', 'results', 'drivers', 'driver', 'profile', 'profiles',
+            'entry-list', 'entry_list', 'entry', 'entries',
             'standings', 'schedule', 'rounds', 'teams', 'competitors',
-            'participants', 'grid', 'lineup'
+            'participants', 'grid', 'lineup', 'championship', 'series',
+            'racing', 'points', 'classification',
         ]
         
         parsed_base = urlparse(url)
@@ -405,18 +408,25 @@ class ChampionshipResearcher:
         related_urls = set()
         
         if raw_html:
-            # Find all href links
+            # Find all href links WITH their surrounding anchor text
             import re as _re
-            links = _re.findall(r'href=["\']([^"\']+)["\']', raw_html)
-            for link in links:
+            # Match <a ...href="URL"...>TEXT</a> — capture both URL and text
+            anchors = _re.findall(
+                r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                raw_html, flags=_re.DOTALL | _re.IGNORECASE
+            )
+            for link, link_text in anchors:
                 full_url = urljoin(url, link)
                 parsed = urlparse(full_url)
                 # Only follow links on the same domain
                 if parsed.netloc != base_domain:
                     continue
-                # Check if the URL path contains any related keywords
+                # Check URL path for keywords
                 path_lower = parsed.path.lower()
-                if any(kw in path_lower for kw in related_keywords):
+                # Also check link text (strip HTML tags from anchor content)
+                text_lower = _re.sub(r'<[^>]+>', '', link_text).lower().strip()
+                if (any(kw in path_lower for kw in related_keywords) or
+                    any(kw in text_lower for kw in related_keywords)):
                     clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                     if clean_url.rstrip('/') != url.rstrip('/'):
                         related_urls.add(clean_url)
